@@ -1,2 +1,177 @@
-# SpecSure
-SpecSure is a coastal hyperspectral data classification system developed by the BlueArray team. The project focuses on applying advanced spectral analysis and machine learning techniques to extract, classify and visualize key environmental features from coastal hyperspectral imagery.
+# 🌊 **SpecSure（澜瞳）**
+
+> —— 海岸带高光谱数据分类系统。**SpecSure = Spectrum + Sure**
+
+------
+
+# 🎯 1. 项目是什么
+
+**SpecSure 是一个支持高光谱数据预处理 → 分类 → 可视化 → 指标评估的小型遥感分析系统。**
+ 你可以把它想象成一个迷你版 ENVI + AI，但更轻、更快，更懂海岸带。
+
+✔ 支持高光谱立方体（HSI）
+✔ 支持光谱曲线查看
+✔ 支持两种模型对比：传统 ML vs 深度学习
+✔ 输出分类彩色图、混淆矩阵、OA/Kappa 等指标
+✔ 适合课程作业、竞赛展示、答辩、唬老师
+
+------
+
+# 🤝 2. 团队介绍：BlueArray（潮霸）
+
+> 看见光谱之外，分类海岸未来
+
+| 成员                | 标签                                                     |
+| ------------------- | -------------------------------------------------------- |
+| 👩‍💻 **linda1729**    | 你永远不知道她做了多少接口                               |
+| 🧑‍💻 **Chenmomo**     | 会CNN魔法的首席大法师（自称）                            |
+| 👨‍🔧 **xixiyhaha**    | 每天都在嘻嘻哈哈做SVM的木木大帅哥                        |
+| 🎨 **KeepingMoving** | 前端审美的守门人（被三个甲方围攻，并随时准备造反的乙方） |
+| 🧙‍♂️ **Gong**         | 伟大的负责人宫学长（真-首席大法师）                      |
+
+------
+
+# 🌈 3. 功能
+
+## 🌐 3.1 数据管理模块
+
+- 支持 `.hdr + .dat`、`.tif`、`.mat` 等高光谱格式
+- 自动显示：
+  - 行 × 列 × 波段数
+  - 波长范围（0.4–2.5 μm）
+- 假彩色组合（RGB 波段可选）
+- 光谱曲线可视化：鼠标点哪里，就画哪里的光谱
+
+## 🧪 3.2 预处理模块
+
+流水线式设计：
+
+- 噪声波段剔除
+- 光谱平滑（SG / 均值滤波）
+- 波段选择（手动 / PCA / 自动指标）
+- 标准化（z-score / min-max）
+- 右侧同步显示光谱变化
+
+## 🤖 3.3 分类模块
+
+支持两套模型并行对比：
+
+### 模型 A：传统 ML
+
+- SVM / Random Forest
+- 经典，高效，稳
+
+### 模型 B：深度学习
+
+- 3D CNN / HybridSN
+- 考虑空谱信息，更适合高光谱
+
+> 你可以同时跑两个模型，用事实证明谁更强。
+
+## 🎨 3.4 结果可视化模块
+
+三联图：
+
+| 原始假彩色 | 模型 A 分类图 | 模型 B 分类图 |
+| ---------- | ------------- | ------------- |
+|            |               |               |
+
+特色功能：
+
+- 类别伪彩色
+- 真实标注轮廓叠加
+- 像元信息：坐标 / 光谱 / 分类结果
+
+## 📊 3.5 性能评估模块
+
+- Overall Accuracy
+- Average Accuracy
+- Kappa
+- 混淆矩阵热力图（A/B 对比）
+- 每类 PA / UA 表格
+
+------
+
+# 🏗️ 4. 系统架构
+
+```
+SpecSure/
+│
+├── backend/                # 后端（Flask 或 FastAPI）
+│   ├── api/                # 数据 → 预处理 → 分类 → 评估
+│   ├── models/             # SVM / 3D-CNN
+│   ├── processing/         # 光谱工具、降噪、标准化
+│   └── saved_models/       # 已训练模型
+│
+├── frontend/               # Vue 前端
+│   ├── pages/              # 五大模块页面
+│   └── components/
+│
+├── data/                   # 示例 HSI 数据
+├── docs/                   # 需求文档、设计文档、流程图
+└── README.md
+```
+
+------
+
+# 🚀 5. 如何运行
+
+## 1）安装依赖
+
+```
+pip install -r requirements.txt
+cd frontend
+npm install
+```
+
+## 2）启动后端
+
+```
+python app.py
+```
+
+## 3）启动前端
+
+```
+npm run dev
+```
+
+打开浏览器访问：
+
+```
+http://localhost:5173/
+```
+
+------
+
+# 👀 6. 哪些地方最好看
+
+### 🌈 假彩色 + 光谱曲线
+
+（图位）
+
+### ⚙️ 预处理流水线
+
+（图位）
+
+### 🔥 分类结果 A/B 对比
+
+（图位）
+
+### 📊 混淆矩阵
+
+（图位）
+
+------
+
+# 🎁 7. License
+
+MIT（老师，你随便看，随便跑，我们真的做了很多乱七八糟的东西。）
+
+------
+
+# 🐳 8. 结语
+
+> 如果你也相信光谱能讲述海岸的故事，
+>  那么 SpecSure 就是你最好的解码器。
+
