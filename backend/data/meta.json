@@ -2913,7 +2913,36 @@
       ]
     }
   ],
-  "model_runs": [],
-  "predictions": [],
+  "model_runs": [
+    {
+      "id": "ModelB_1701f9",
+      "type": "cnn3d",
+      "dataset_id": "ds_demo_pp1ebb8c",
+      "label_id": "lb_demo",
+      "train_ratio": 0.7,
+      "random_seed": 42,
+      "params": {
+        "n_estimators": 80,
+        "epochs": 50,
+        "batch_size": 32,
+        "optimizer": "adam",
+        "patch_size": 11,
+        "_cnn_backend": "local-hybridsn",
+        "_gateway_note": "使用本地 HybridSN 训练完成"
+      },
+      "status": "finished",
+      "model_path": null,
+      "prediction_result_id": "pred_46b63f"
+    }
+  ],
+  "predictions": [
+    {
+      "id": "pred_46b63f",
+      "model_id": "ModelB_1701f9",
+      "dataset_id": "ds_demo_pp1ebb8c",
+      "pred_mask_path": "E:\\NCS\\Project\\SpecSure\\backend\\data\\predictions\\pred_46b63f.npy",
+      "preview_image_path": "E:\\NCS\\Project\\SpecSure\\backend\\data\\previews\\pred_46b63f.png"
+    }
+  ],
   "evaluations": []
 }
