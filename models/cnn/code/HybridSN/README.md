@@ -123,10 +123,5 @@ HybridSN 采用以下架构：
 - joblib
 
 ## 引用
+是在下面这个论文
 
-如果使用本代码，请引用原始论文：
-```
-Roy, S. K., Krishna, G., Dubey, S. R., & Chaudhuri, B. B. (2020).
-HybridSN: Exploring 3-D–2-D CNN feature hierarchy for hyperspectral image classification.
-IEEE Geoscience and Remote Sensing Letters, 17(2), 277-281.
-```
