@@ -84,9 +84,11 @@ class HybridSNPredictor:
                 preds = torch.argmax(logits, dim=1).cpu().numpy()
                 return preds
 
+
+
 # FastAPI 路由调用示例：
 # from api.predictor import HybridSNPredictor
-# predictor = HybridSNPredictor('best_model.pth')
+# predictor = HybridSNPredictor('best_model.pth')#权重的文件名需要根据训练的data_model_pca=xx_window=xx_lr=xxx_epochs=xxx
 # @app.post('/predict')
 # async def predict_endpoint(data: list):
 #     result = predictor.predict(data)
