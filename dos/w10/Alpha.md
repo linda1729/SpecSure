@@ -72,7 +72,7 @@
 2. **完成 mock 接口编写**
    - `/upload_hsi`：接收文件返回示例元数据
    - `/preprocess`：返回固定维度的处理后数据（模拟降噪/标准化）
-   - `/classify_svm`、`/classify_cnn`：返回示例分类图
+   - `/classify_svm`、`/classif  y_cnn`：返回示例分类图
    - `/evaluate`：返回固定的 OA/Kappa 数据
 3. **与前端同学对接**
    - 完成数据格式文档
