@@ -105,7 +105,7 @@ SpecSure/
 │   ├── processing/         # 光谱工具、降噪、标准化
 │   └── saved_models/       # 已训练模型
 │
-├── frontend/               # Vue 前端
+├── mockfrontend/          # 简易调试前端（静态页）
 │   ├── pages/              # 五大模块页面
 │   └── components/
 │
@@ -116,33 +116,37 @@ SpecSure/
 
 ------
 
-# 🚀 5. 如何运行
+# 🚀 5. 如何运行（当前已接入 FastAPI 后端）
 
-## 1）安装依赖
+## 1）安装后端依赖
 
 ```
 pip install -r requirements.txt
-cd frontend
-npm install
 ```
 
-## 2）启动后端
+## 2）启动后端（含自动生成 demo 数据与标注）
 
 ```
-python app.py
+uvicorn backend.app.main:app --reload --port 8000
 ```
 
-## 3）启动前端
+打开文档：`http://localhost:8000/docs`
+
+## 3）前端（调试用简易界面）
 
 ```
-npm run dev
+cd mockfrontend
+python3 -m http.server 5500
 ```
 
-打开浏览器访问：
+```
+# 浏览器访问
+http://localhost:5500/index.html
+```
 
-```
-http://localhost:5173/
-```
+- “加载 Demo 数据”后即可直接跑通：预览 → 预处理 → 训练/预测 → 可视化 → 像元查询/评估。
+- 所有 API 走 `http://localhost:8000`，后续替换为真实模型时保持前端调用不变。
+- 如需自定义后端地址，在 URL 添加 `?api=http://your-host:port`，例如 `http://localhost:5500/index.html?api=http://127.0.0.1:8000`。
 
 ------
 
@@ -176,4 +180,3 @@ MIT（我们真的做了很多乱七八糟的东西。）
 
 > 如果你也相信光谱能讲述海岸的故事，
 >  那么 SpecSure 就是你最好的解码器。
-
