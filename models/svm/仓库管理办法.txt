@@ -1,0 +1,10 @@
+# 1. 先更新 main（拿到组里最新代码）
+git checkout main
+git pull origin main
+
+# 2. 回到自己的开发分支，把 main 合进来
+git checkout feature-svm
+git merge main        # 有冲突就解决 -> git add . -> git commit
+
+# 3. 把自己的分支推到远程（绝不动 main）
+git push origin feature-svm

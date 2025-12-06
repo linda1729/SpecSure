@@ -2019,7 +2019,7 @@
     {
       "id": "ds_demo",
       "name": "demo_coastline",
-      "path": "E:\\NCS\\Project\\SpecSure\\backend\\data\\raw\\ds_demo.npy",
+      "path": "D:\\Desktop\\SpecSure-main\\backend\\data\\raw\\ds_demo.npy",
       "rows": 64,
       "cols": 64,
       "bands": 32,
@@ -2061,7 +2061,7 @@
         "source": "generated",
         "description": "demo cube for pipeline test"
       },
-      "preview_image": "E:\\NCS\\Project\\SpecSure\\backend\\data\\previews\\ds_demo_rgb.png"
+      "preview_image": "D:\\Desktop\\SpecSure-main\\backend\\data\\previews\\ds_demo_rgb.png"
     }
   ],
   "pipelines": [
@@ -2882,7 +2882,7 @@
     {
       "id": "lb_demo",
       "dataset_id": "ds_demo",
-      "path": "E:\\NCS\\Project\\SpecSure\\backend\\data\\labels\\lb_demo.npy",
+      "path": "D:\\Desktop\\SpecSure-main\\backend\\data\\labels\\lb_demo.npy",
       "classes": [
         {
           "id": 1,

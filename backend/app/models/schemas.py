@@ -2,6 +2,11 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
 
+from typing import Any, Dict, List, Literal
+
+from pydantic import BaseModel
+
+
 
 class Dataset(BaseModel):
     id: str
@@ -141,3 +146,37 @@ class PixelInfoResponse(BaseModel):
     ground_truth: Optional[Dict[str, Any]]
     modelA: Optional[Dict[str, Any]] = None
     modelB: Optional[Dict[str, Any]] = None
+
+
+#########################################
+#                  SVM                  #
+#########################################
+
+class SVMRunRequest(BaseModel):
+    """
+    前端调用 /api/svm/run 时的请求体。
+    dataset: 目前限定三套公开数据集
+    其他参数：对应 SVM 的超参数，可给默认值
+    """
+    dataset: Literal["indian_pines", "paviaU", "salinas"]
+    kernel: str = "rbf"
+    C: float = 10.0
+    gamma: str | float = "scale"   # 可以是 "scale"/"auto" 或具体数值
+    degree: int = 3
+    test_size: float = 0.2
+    random_state: int = 42
+    save_model: bool = True        # 是否把本次训练好的模型保存下来
+
+
+class SVMRunResponse(BaseModel):
+    """
+    /api/svm/run 的返回结果。
+    """
+    dataset: str
+    config: Dict[str, Any]               # 实际用到的 SVMConfig
+    accuracy: float
+    kappa: float
+    confusion_matrix: List[List[int]]    # 方便前端画图
+    classification_report: str           # 直接展示文本即可
+    image_paths: Dict[str, str]          # 服务器上的文件路径
+    image_urls: Dict[str, str]           # 前端可直接访问的 URL（/static/...）
