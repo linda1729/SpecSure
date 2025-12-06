@@ -8,3 +8,13 @@ git merge main        # 有冲突就解决 -> git add . -> git commit
 
 # 3. 把自己的分支推到远程（绝不动 main）
 git push origin feature-svm
+
+#虚拟环境
+conda activate specsure-ml
+
+
+# 周报提交main分支
+# git checkout main
+# git add dos/w11
+# git commit -m "邓林w11Alpha周报更新"
+# git push origin main
