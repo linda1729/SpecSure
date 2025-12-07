@@ -201,7 +201,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-AGENTS.md
 
 # Marimo
 marimo/_static/
@@ -209,3 +208,6 @@ marimo/_lsp/
 __marimo__/
 
 .idea
+
+AGENTS.md
+情况说明.md

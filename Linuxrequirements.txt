@@ -1,0 +1,103 @@
+## 我的云端资源配置的是Ubuntu，所以配置了linux版本的依赖，大家别管这个。
+############ 基础科学计算 ############
+numpy==1.26.4
+scipy==1.11.4
+pandas==2.0.3
+scikit-learn==1.3.2
+mpmath==1.3.0
+sympy==1.13.3
+networkx==3.1
+
+############ 深度学习 & GPU ############
+# ⭐ 建议用官方命令单独安装对应 CUDA 版本的 torch/torchvision/torchaudio
+torch
+torchvision
+torchaudio
+
+complexpytorch==0.4
+pytorch-wavelets==1.3.0
+thop==0.1.1-2209072238
+timm==0.5.4
+fvcore==0.1.5.post20221221
+mmcv==2.0.0
+mmengine==0.10.7
+yacs==0.1.8
+torchinfo==1.8.0
+pycocotools==2.0.7
+iopath==0.1.10
+
+############ HybridSN / 图像处理 ############
+spectral==0.24
+tqdm==4.67.1
+matplotlib==3.7.5
+seaborn==0.13.2
+h5py==3.11.0
+hdf5storage==0.1.19
+imageio==2.35.1
+scikit-image==0.21.0
+opencv-python==4.11.0.86
+pillow==10.4.0
+pywavelets==1.4.1
+tifffile==2023.7.10
+
+############ FastAPI 后端 ############
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+requests==2.32.3
+
+############ Transformers / NLP / HuggingFace ############
+transformers==4.46.3
+tokenizers==0.20.3
+huggingface-hub==0.32.0
+safetensors==0.5.3
+hf-xet==1.1.2
+
+############ 通用工具 & 依赖 ############
+addict==2.4.0
+einops==0.8.1
+tabulate==0.9.0
+rich==14.0.0
+termcolor==2.4.0
+psutil==7.0.0
+filelock==3.16.1
+portalocker==3.0.0
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
+typing-extensions==4.12.2
+packaging==24.2
+platformdirs==4.3.6
+setuptools==75.1.0
+wheel==0.44.0
+pip==24.2
+yapf==0.43.0
+fsspec==2025.2.0
+importlib-resources==6.4.5
+zipp==3.20.2
+
+############ 可视化 / Plotting ############
+contourpy==1.1.1
+cycler==0.12.1
+fonttools==4.56.0
+kiwisolver==1.4.7
+pyparsing==3.1.4
+
+############ Web / 网络请求基础 ############
+certifi==2025.1.31
+charset-normalizer==3.4.1
+idna==3.10
+urllib3==2.2.3
+
+############ 文本 / 控制台 UI ############
+colorama==0.4.6
+markdown-it-py==3.0.0
+mdurl==0.1.2
+pygments==2.19.1
+regex==2024.11.6
+tomli==2.2.1
+
+############ 其它科学计算和配置 ############
+lazy-loader==0.4
+pyyaml==6.0.2
+

@@ -1,73 +1,34 @@
-# SpecSure API 全量清单（现有 & 规划）
+# SpecSure API 全量清单（HybridSN 接口版）
 
-图例：✅ 已实现 · 🟡 规划中（尚无代码，但为业务所需）。所有接口均返回 JSON，除静态文件外默认前缀 `/api`。
+所有接口默认前缀 `/api/cnn`，除特别说明外返回 JSON；静态文件通过 `/cnn-static` 直出 `models/cnn` 目录。
 
-## 基础/运行
-- ✅ `GET /health` 心跳。
-- ✅ `GET /docs` Swagger UI。
+## 基础
+- `GET /health`：健康检查。
+- `GET /docs`：Swagger UI。
 
-## 数据集
-- ✅ `POST /api/datasets/upload` 上传 `.npy/.npz`。
-- ✅ `GET /api/datasets` 列表。
-- ✅ `GET /api/datasets/{id}/metadata` 元数据。
-- ✅ `GET /api/datasets/{id}/preview-rgb` 伪彩色。
-- ✅ `GET /api/datasets/{id}/spectrum?row=&col=` 像元光谱。
-- 🟡 `DELETE /api/datasets/{id}` 删除数据集及相关产物。
+## 数据集管理
+- `GET /api/cnn/defaults`：返回
+  - `datasets`: IP / SA / PU 的文件名、键名、是否就绪、路径
+  - `hyperparams`: 默认超参（test_ratio/window_size/pca/...）
+- `GET /api/cnn/datasets`：仅返回数据集状态列表。
+- `POST /api/cnn/datasets/upload`：上传或覆盖 `.mat`
+  - 字段：`dataset`(IP|SA|PU)、`hsi_file`、`gt_file`
+  - 目标：`models/cnn/data/[Dataset]/(HSI/GT)`，与 `cnn-说明文档.md` 完全匹配。
 
-## 预处理
-- ✅ `POST /api/preprocess/run` 运行当前预处理流程。
-- ✅ `GET /api/preprocess/band-importance?dataset_id=` 波段重要性。
-- 🟡 `GET /api/preprocess/pipelines` 查询历史流水线。
-- 🟡 `POST /api/preprocess/preview` 仅返回预览，不写盘。
+## HybridSN 训练 / 推理
+- `POST /api/cnn/train`：调用 `models/cnn/code/HybridSN/train.py`
+  - 主要字段：`dataset`、`test_ratio`、`window_size`、`pca_components_ip`、`pca_components_other`、`batch_size`、`epochs`、`lr`
+  - 可选：`data_path`、`model_path`（训练保存）、`inference_only`、`input_model_path`（推理必填）、`output_prediction_path`
+  - 返回：`job_id`、`status/pending|running|succeeded|failed`、`progress`、`command`、`artifacts`（路径+可访问 URL）、`metrics`（训练完成后从报告解析；推理模式为空）、`logs_tail`
+- `GET /api/cnn/train/{job_id}`：查询任务状态，字段同上，供前端轮询进度条使用。
 
-## 标注
-- ✅ `POST /api/labels/upload` 上传整幅 mask（JSON classes 可选）。
-- ✅ `GET /api/labels` 标注列表。
-- ✅ `GET /api/labels/{id}/legend` 颜色图例。
-- 🟡 `PATCH /api/labels/{id}` 更新类别名称/颜色。
+## 产物归档
+- `GET /api/cnn/artifacts`：列出 `trained_models/HybridSN`、`reports/HybridSN`、`visualizations/HybridSN` 下的文件，附带可直接访问的 URL（基于 `/cnn-static`）。
 
-## 训练 / 预测
-- ✅ `POST /api/train-and-predict` 同步训练并生成预测，支持 `svm` / `rf` / `cnn3d`。
-- ✅ `GET /api/model-runs[?dataset_id=]` 训练记录。
-- ✅ `GET /api/predictions[?dataset_id=]` 预测结果列表。
-- ✅ `GET /api/models/cnn/status` CNN 网关可用性（远端/本地占位）。
-- 🟡 `POST /api/models/cnn/async-train` 提交异步任务（返回 task_id）。
-- 🟡 `GET /api/tasks/{task_id}/status` 轮询异步进度。
+## 预留
+- `POST /api/cnn/svm/train`：SVM 入口预留，暂未实现。
 
-### CNN 远端网关协议（供云端部署使用）
-- 环境变量：`CNN_API_BASE`（必填以启用远端）、`CNN_API_PREDICT_PATH=/predict`、`CNN_API_TIMEOUT`、`CNN_API_KEY`（可选）。
-- 请求（由后端代理发送）：
-```jsonc
-{
-  "dataset_id": "ds_xxx",
-  "label_id": "lb_xxx",
-  "train_ratio": 0.7,
-  "random_seed": 42,
-  "params": { "epochs": 50, "batch_size": 32, "patch_size": 11, "...": "..." },
-  "package": "<base64(npz)>"
-}
-```
-- 响应（远端服务应满足其一）：
-```jsonc
-{
-  "status": "finished",
-  "task_id": "optional-task-id",
-  "mask_base64": "<base64(np.ndarray)>", // 或 "mask": [[...], ...]
-  "meta": { "backend": "hybridsn-gpu", "duration": 12.3 },
-  "message": "optional"
-}
-```
-- 如果未配置 `CNN_API_BASE`，后端会使用随机森林占位推理，并在 `model_run.params._cnn_backend` 标注 `local-fallback`。
-
-## 评估与可视化
-- ✅ `POST /api/evaluate?prediction_id=&label_id=` 计算 OA/Kappa/混淆矩阵。
-- ✅ `GET /api/predictions/{pred_id}/image` 生成/获取预测预览图。
-- ✅ `GET /api/pixel-info?dataset_id=&row=&col=&label_id=&predA_id=&predB_id=` 像元对比。
-- 🟡 `GET /api/evaluations[?prediction_id=]` 评估历史。
-- 🟡 `GET /api/tiles/{dataset_id}` 按需分块返回大图（便于前端懒加载）。
-
-## 静态文件
-- ✅ `/static/previews/{file}` 分类/伪彩色预览。
-- ✅ `/static/predictions/{file}` 预测 mask（`.npy`）。
-
-> 说明：🟡 标记的接口尚未实现，可根据课程节奏逐步添加；当前前端只依赖已实现的接口。
+## 静态与下载
+- `/cnn-static/...`：对应 `models/cnn` 目录，例如
+  - `/cnn-static/visualizations/HybridSN/Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png`
+  - `/cnn-static/reports/HybridSN/Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt`

@@ -2,11 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .core.bootstrap import ensure_demo_data
-from .core.config import DATA_ROOT
-from .services import dataset_service, evaluation_service, label_service, model_service, preprocess_service, visualization_service
+from .core.config import CNN_ROOT, ensure_cnn_directories
+from .services import cnn_service
 
-app = FastAPI(title="SpecSure Backend", version="0.1.0")
+app = FastAPI(title="SpecSure Backend", version="0.2.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,12 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory=DATA_ROOT), name="static")
-
-
-@app.on_event("startup")
-async def startup_event():
-    ensure_demo_data()
+# 暴露模型目录，便于前端直接访问训练/可视化产物
+ensure_cnn_directories()
+app.mount("/cnn-static", StaticFiles(directory=CNN_ROOT), name="cnn-static")
 
 
 @app.get("/health")
@@ -29,9 +25,6 @@ async def health():
     return {"status": "ok"}
 
 
-app.include_router(dataset_service.router)
-app.include_router(preprocess_service.router)
-app.include_router(label_service.router)
-app.include_router(model_service.router)
-app.include_router(evaluation_service.router)
-app.include_router(visualization_service.router)
+# 双重挂载，确保 /api/cnn/* 与无前缀路径均可访问，避免部署前缀不一致
+app.include_router(cnn_service.router)
+app.include_router(cnn_service.router, prefix="/api/cnn")
