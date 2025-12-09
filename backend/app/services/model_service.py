@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+from io import BytesIO
 
 import joblib
 import numpy as np
@@ -8,17 +9,39 @@ from fastapi import APIRouter, HTTPException
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
+from pydantic import BaseModel
 
 from ..core.config import LABEL_DIR, MODEL_DIR, PREDICTION_DIR, PREVIEW_DIR, RAW_DIR
 from ..core.deps import store
 from ..models.schemas import Dataset as DatasetModel
-from ..models.schemas import ModelRun, PredictionResult, TrainRequest
+from ..models.schemas import ModelRun, PredictionResult, TrainRequest, SVMRunResponse
 from .cnn_gateway import CnnGateway
+from .svm_service import DATASET_CONFIGS as SVM_DATASET_CONFIGS, run_svm_on_uploaded_data
 from .dataset_service import load_dataset_array
 from .utils import mask_to_color_image, save_cube, save_preview
 
 router = APIRouter(prefix="/api", tags=["models"])
 cnn_gateway = CnnGateway()
+
+
+class SVMTrainRequest(BaseModel):
+    """
+    使用预置数据集（indian_pines / paviaU / salinas）跑一遍完整的 SVM 训练 + 全图预测。
+
+    - 前端只需要给 dataset + 一组 SVM 超参数（JSON Body），风格和 CNN 的集中训练接口类似
+    - 后端自动从磁盘读取对应 .mat 文件（复用 svm_service.DATASET_CONFIGS）
+    - 复用 svm_service.run_svm_on_uploaded_data（训练 + 评估 + 可视化）
+    - 返回 SVMRunResponse
+    """
+
+    dataset: str  # "indian_pines" / "paviaU" / "salinas"
+    kernel: str = "rbf"
+    C: float = 10.0
+    gamma: str | float = "scale"
+    degree: int = 3
+    test_size: float = 0.2
+    random_state: int = 42
+    save_model: bool = True
 
 
 def _load_label(label_id: str, dataset: DatasetModel) -> np.ndarray:
@@ -38,10 +61,8 @@ def _load_label(label_id: str, dataset: DatasetModel) -> np.ndarray:
         alt = LABEL_DIR / path.name
         if alt.exists():
             path = alt
-            record["path"] = str(path)
-            store.upsert_label(record)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="标注文件缺失")
+        else:
+            raise HTTPException(status_code=404, detail="label 文件不存在")
     return np.load(path).astype(np.int32)
 
 
@@ -113,7 +134,6 @@ def _train_single_model(
         model_path=str(model_path),
         prediction_result_id=pred_id,
     )
-
     prediction = PredictionResult(
         id=pred_id,
         model_id=model_id,
@@ -124,45 +144,55 @@ def _train_single_model(
     return {"model_run": model_run, "prediction": prediction}
 
 
-def _train_cnn_model(
-    model_cfg,
-    data: np.ndarray,
-    labels: np.ndarray,
-    random_seed: int,
-    dataset_shape: tuple,
-    dataset_id: str,
-    label_id: str,
-) -> Dict[str, Any]:
-    h, w, _ = dataset_shape
-    pred_mask, meta = cnn_gateway.train_and_predict(
-        data=data,
-        labels=labels,
-        train_ratio=model_cfg.train_ratio,
-        params=model_cfg.params,
-        random_seed=random_seed,
-        dataset_id=dataset_id,
-        label_id=label_id,
+def _train_cnn_via_gateway(model_cfg, dataset: DatasetModel, labels: np.ndarray, random_seed: int):
+    h, w, c = dataset.shape
+    flat_labels = labels.reshape(-1)
+    if np.all(flat_labels <= 0):
+        raise HTTPException(status_code=400, detail="标注为空，无法训练")
+
+    # 把数据、标签转成存储记录，交给 CnnGateway 处理
+    dataset_id = dataset.id
+    label_id = model_cfg.label_id or f"label_{uuid4().hex[:6]}"
+
+    # 将 label 保存为文件
+    LABEL_DIR.mkdir(parents=True, exist_ok=True)
+    label_path = LABEL_DIR / f"{label_id}.npy"
+    np.save(label_path, labels.astype(np.int32))
+    store.save_label(
+        {
+            "id": label_id,
+            "dataset_id": dataset_id,
+            "path": str(label_path),
+            "meta": {"source_dataset": dataset.meta.get("source_dataset") if isinstance(dataset.meta, dict) else None},
+        }
     )
-    if pred_mask.shape != (h, w):
-        raise HTTPException(status_code=500, detail="CNN 返回的掩膜尺寸不匹配")
 
-    model_id = f"{model_cfg.name}_{uuid4().hex[:6]}"
-    pred_id = f"pred_{uuid4().hex[:6]}"
+    # 调用 CNN 网关进行训练与预测
+    payload = {
+        "dataset_id": dataset_id,
+        "label_id": label_id,
+        "models": [
+            {
+                "name": model_cfg.name,
+                "type": model_cfg.type,
+                "enabled": True,
+                "train_ratio": model_cfg.train_ratio,
+                "params": model_cfg.params,
+            }
+        ],
+        "random_seed": random_seed,
+    }
+    result = cnn_gateway.train_and_predict(payload)
+    runs = result.get("runs", [])
+    if not runs:
+        raise HTTPException(status_code=500, detail="CNN 训练失败或无结果")
+    run_info = runs[0]
+    meta = run_info.get("meta", {})
 
-    pred_path = PREDICTION_DIR / f"{pred_id}.npy"
-    save_cube(pred_path, pred_mask.astype(np.int32))
-    preview_img = mask_to_color_image(pred_mask)
-    preview_path = PREVIEW_DIR / f"{pred_id}.png"
-    save_preview(preview_img, preview_path)
-
-    merged_params = {**model_cfg.params}
-    merged_params["_cnn_backend"] = meta.get("backend")
-    if meta.get("endpoint"):
-        merged_params["_cnn_endpoint"] = meta.get("endpoint")
-    if meta.get("note"):
-        merged_params["_gateway_note"] = meta.get("note")
-    if meta.get("remote_task_id"):
-        merged_params["_remote_task_id"] = meta.get("remote_task_id")
+    model_id = run_info.get("model_id", f"cnn_{uuid4().hex[:6]}")
+    pred_id = run_info.get("prediction_id", f"pred_{uuid4().hex[:6]}")
+    pred_path = Path(run_info.get("pred_mask_path", PREDICTION_DIR / f"{pred_id}.npy"))
+    preview_path = Path(run_info.get("preview_image_path", PREVIEW_DIR / f"{pred_id}.png"))
 
     model_run = ModelRun(
         id=model_id,
@@ -171,7 +201,7 @@ def _train_cnn_model(
         label_id=label_id,
         train_ratio=model_cfg.train_ratio,
         random_seed=random_seed,
-        params=merged_params,
+        params=model_cfg.params,
         status=meta.get("remote_status", "finished"),
         model_path=None,
         prediction_result_id=pred_id,
@@ -195,30 +225,40 @@ async def train_and_predict(payload: TrainRequest):
     for model_cfg in payload.models:
         if not model_cfg.enabled:
             continue
-        if model_cfg.type == "svm":
-            # 暂时关闭 SVM，避免干扰 CNN 联调
-            continue
         if model_cfg.type in {"cnn3d", "cnn", "hybridsn"}:
-            result = _train_cnn_model(
-                model_cfg, data, labels, payload.random_seed, data.shape, dataset.id, payload.label_id
-            )
+            result = _train_cnn_via_gateway(model_cfg, dataset, labels, payload.random_seed)
         else:
             result = _train_single_model(
-                model_cfg, data, labels, payload.random_seed, data.shape, dataset.id, payload.label_id
+                model_cfg,
+                data=data,
+                labels=labels,
+                random_seed=payload.random_seed,
+                dataset_shape=dataset.shape,
+                dataset_id=dataset.id,
+                label_id=payload.label_id,
             )
-        model_run: ModelRun = result["model_run"]
-        prediction: PredictionResult = result["prediction"]
-        store.upsert_model_run(model_run.model_dump())
-        store.upsert_prediction(prediction.model_dump())
-        runs.append({"model_run": model_run, "prediction": prediction})
-    if not runs:
-        raise HTTPException(status_code=400, detail="未启用任何模型（SVM 已暂时关闭，请选择 CNN 或 RF）")
+        store.save_model_run(result["model_run"].dict())
+        store.save_prediction_result(result["prediction"].dict())
+        runs.append(
+            {
+                "model_run": result["model_run"],
+                "prediction": result["prediction"],
+            }
+        )
     return {"runs": runs}
+
+
+@router.get("/models")
+async def list_models(dataset_id: Optional[str] = None):
+    models = store.list_model_runs()
+    if dataset_id:
+        models = [m for m in models if m.get("dataset_id") == dataset_id]
+    return models
 
 
 @router.get("/predictions")
 async def list_predictions(dataset_id: Optional[str] = None):
-    preds = store.list_predictions()
+    preds = store.list_prediction_results()
     if dataset_id:
         preds = [p for p in preds if p.get("dataset_id") == dataset_id]
     return preds
@@ -230,6 +270,58 @@ async def list_model_runs(dataset_id: Optional[str] = None):
     if dataset_id:
         runs = [r for r in runs if r.get("dataset_id") == dataset_id]
     return runs
+
+
+@router.post("/models/svm/run", response_model=SVMRunResponse)
+async def run_svm_model(request: SVMTrainRequest) -> SVMRunResponse:
+    """
+    使用预置数据集（indian_pines / paviaU / salinas）跑一遍完整的 SVM 训练 + 全图预测。
+
+    - 前端只需要给 dataset + 一组 SVM 超参数（JSON Body），风格和 CNN 的集中训练接口类似
+    - 后端自动从磁盘读取对应 .mat 文件（复用 svm_service.DATASET_CONFIGS）
+    - 复用 svm_service.run_svm_on_uploaded_data（训练 + 评估 + 可视化）
+    - 返回 SVMRunResponse
+    """
+
+    cfg = SVM_DATASET_CONFIGS.get(request.dataset)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail=f"未知数据集: {request.dataset}")
+
+    hsi_path: Path = cfg["hsi_path"]
+    gt_path: Path = cfg["gt_path"]
+    hsi_key: str = cfg["hsi_key"]
+    gt_key: str = cfg["gt_key"]
+
+    if not hsi_path.exists() or not gt_path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"HSI 或 GT 文件不存在: {request.dataset}",
+        )
+
+    # 读取 .mat 文件为 BytesIO，以复用 run_svm_on_uploaded_data 的逻辑
+    with hsi_path.open("rb") as f:
+        hsi_bytes = BytesIO(f.read())
+    with gt_path.open("rb") as f:
+        gt_bytes = BytesIO(f.read())
+
+    result = run_svm_on_uploaded_data(
+        hsi_data=hsi_bytes,
+        gt_data=gt_bytes,
+        hsi_key=hsi_key,
+        gt_key=gt_key,
+        kernel=request.kernel,
+        C=request.C,
+        gamma=request.gamma,
+        degree=request.degree,
+        test_size=request.test_size,
+        random_state=request.random_state,
+        save_model=request.save_model,
+    )
+
+    # 覆盖 dataset 字段为真实的数据集名
+    result["dataset"] = request.dataset
+
+    return SVMRunResponse(**result)
 
 
 @router.get("/models/cnn/status")

@@ -1,102 +1,137 @@
 # Models/SVM 文件结构说明
 
-本文件记录 `models/svm/` 目录的最新结构和命名规范，便于后续扩展和维护。  
-整体设计理念与 `models/cnn/` 目录保持一致：**代码 / 数据 / 模型 / 报告 / 可视化清晰分离**。
+本文件记录 `models/svm/` 目录的最新结构和命名规范，  
+整体设计 **与 `models/cnn/` 对齐**，并额外补充了 SVM 模型专属的训练脚本、报告和可视化产物。
 
 ---
 
-## 📁 目录结构
+## 📁 目录结构（最新版）
 
 ```text
 models/svm/
-├── README.md                           # SVM 模块总体说明
-├── STRUCTURE.md                        # 文件结构与命名规范说明
+├── README.md                           # SVM 模块总体说明（给研发 + 前端看的）
+├── STRUCTURE.md                        # 本文件：结构与命名规范
 │
 ├── code/
 │   └── SVM/
 │       ├── __init__.py
 │       ├── model.py                    # SVMClassifier & SVMConfig
-│       ├── train.py                    # 训练脚本
-│       └── prepare_data.py             # 从 .mat 构建 X/y
+│       ├── train.py                    # 训练 & 推理脚本（与 CNN CLI 对齐）
+│       ├── prepare_data.py             # 从 .mat 构建 X/y（可独立使用，也给后端用）
+│       └── visualize_results.py        # 混淆矩阵 / 标签图 / Error map 等可视化工具
 │
-├── data/                               # SVM 训练特征（由 prepare_data.py 生成）
-│   ├── IndianPines/
-│   │   ├── X.npy                       # 光谱特征 (n_samples, n_features)
-│   │   └── y.npy                       # 标签向量 (n_samples,)
+├── data/                               # 预留给 SVM 使用的中间数据（目前不是必需）
+│   ├── IndianPines/                    # 可选：存放预计算的 X.npy / y.npy
 │   ├── PaviaU/
-│   │   ├── X.npy
-│   │   └── y.npy
 │   └── Salinas/
-│       ├── X.npy
-│       └── y.npy
 │
 ├── trained_models/
 │   └── SVM/
-│       ├── indian_pines_svm.joblib     # Indian Pines 训练好的 SVM 模型
-│       ├── paviaU_svm.joblib           # PaviaU 训练好的 SVM 模型
-│       └── salinas_svm.joblib          # Salinas 训练好的 SVM 模型
+│       ├── IndianPines_model_pca=30_window=25_lr=0.001_epochs=100.joblib
+│       ├── IndianPines_model_pca=30_window=25_lr=0.001_epochs=100.joblib.pca.pkl
+│       ├── Salinas_model_pca=15_window=25_lr=0.001_epochs=100.joblib
+│       ├── Salinas_model_pca=15_window=25_lr=0.001_epochs=100.joblib.pca.pkl
+│       ├── PaviaU_model_pca=15_window=25_lr=0.001_epochs=100.joblib
+│       └── PaviaU_model_pca=15_window=25_lr=0.001_epochs=100.joblib.pca.pkl
 │
-├── reports/                            # 预留：SVM 评估报告（可选）
+├── reports/
 │   └── SVM/
-│       ├── indian_pines_report.txt
-│       ├── paviaU_report.txt
-│       └── salinas_report.txt
+│       ├── IndianPines_report_pca=30_window=25_lr=0.001_epochs=100.txt
+│       ├── Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt
+│       └── PaviaU_report_pca=15_window=25_lr=0.001_epochs=100.txt
 │
-└── visualizations/                     # SVM 预测可视化结果
-    ├── IndianPines/
-    │   ├── hsi_rgb.png
-    │   ├── gt_labels.png
-    │   ├── svm_pred_labels.png
-    │   └── svm_errors.png
-    ├── PaviaU/
-    │   ├── hsi_rgb.png
-    │   ├── gt_labels.png
-    │   ├── svm_pred_labels.png
-    │   └── svm_errors.png
-    └── Salinas/
-        ├── hsi_rgb.png
-        ├── gt_labels.png
-        ├── svm_pred_labels.png
-        └── svm_errors.png
+└── visualizations/
+    └── SVM/
+        ├── IndianPines_confusion_pca=30_window=25_lr=0.001_epochs=100.png
+        ├── IndianPines_groundtruth.png
+        ├── IndianPines_prediction_pca=30_window=25_lr=0.001_epochs=100.png
+        ├── IndianPines_errors_pca=30_window=25_lr=0.001_epochs=100.png
+        │
+        ├── Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── Salinas_groundtruth.png
+        ├── Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png
+        │
+        ├── PaviaU_confusion_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── PaviaU_groundtruth.png
+        ├── PaviaU_prediction_pca=15_window=25_lr=0.001_epochs=100.png
+        └── PaviaU_errors_pca=15_window=25_lr=0.001_epochs=100.png
+````
+train.py 默认从 models/cnn/data 读取内置 demo 数据集（IndianPines / Salinas / PaviaU），用于离线训练基线模型；
+前端用户上传数据时，走的是 backend/app/services/svm_service.py，直接使用上传的 .mat 文件，不依赖 models/cnn/data 或 models/svm/data。
+
+---
+
+## 🧩 命名规范（和 CNN 对齐）
+
+### 1. 模型文件
+
+位于 `models/svm/trained_models/SVM/`：
+
+```text
+{DatasetName}_model_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.joblib
+{同名}.joblib.pca.pkl        # 保存 StandardScaler + PCA 对象
+```
+
+* `DatasetName ∈ {IndianPines, Salinas, PaviaU}`
+* `K` 为 PCA 维度：IndianPines 默认 30，Salinas/PaviaU 默认 15
+* `window_size / lr / epochs` 与 CNN 一致，仅用于命名，便于前端展示
+
+### 2. 报告文件
+
+位于 `models/svm/reports/SVM/`：
+
+```text
+{DatasetName}_report_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.txt
+```
+
+内容包含（字段名和顺序尽量对齐 CNN）：
+
+* Test loss (%)
+* Test accuracy (%)
+* Kappa accuracy (%)
+* Overall accuracy (%)
+* Average accuracy (%)
+* sklearn-style 的 classification_report
+* 混淆矩阵（二维数组）
+
+### 3. 可视化图片
+
+位于 `models/svm/visualizations/SVM/`：
+
+* `{DatasetName}_groundtruth.png`
+* `{DatasetName}_prediction_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
+* `{DatasetName}_errors_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
+* `{DatasetName}_confusion_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
+
+其中：
+
+* **Ground Truth**：原 GT 标签图（背景=0）
+* **Prediction**：SVM 整图预测标签，背景位置设为 0
+* **Errors**：正确像素为绿色，错误像素为红色（比 CNN 多的一张“加分图”）
+* **Confusion**：带数值的混淆矩阵（行/列都按类别 ID 排序）
+
+---
+
+## 🔗 与 CNN 模块的对齐关系（方便前端 & 组会讲解）
+
+1. **数据来源一致**
+
+   * CNN / SVM 都从 `models/cnn/data/{IndianPines,Salinas,PaviaU}` 读取 `.mat` 高光谱和 GT。
+2. **训练 CLI 形态一致**
+
+   * CNN 与 SVM 的 `train.py` 都支持 `--dataset / --test_ratio / --pca_components_xx / --window_size / --lr / --epochs` 等参数。
+3. **输出文件类型一致**
+
+   * 都有：模型参数文件 + 文本报告 + 混淆矩阵 + Ground Truth + Prediction 可视化图。
+4. **额外能力**
+
+   * SVM 相比 CNN 多提供了一张 Error map（错误分布），可以作为项目亮点展示。
+
+前端在做“结果对比页”时，可以直接并排展示 CNN / SVM 对同一数据集的这几张图和三大指标（OA / AA / Kappa），
+路径规则完全统一，只是前缀换成了 `.../cnn/...` vs `.../svm/...`。
+
 ````
 
 ---
 
-## 🎯 设计要点
-
-1. **与 CNN 目录对齐**
-
-   * `code/`：只放源代码，按模型名称（SVM）分目录
-   * `data/`：只放训练/推理用特征数据，按数据集名称分目录
-   * `trained_models/`：只放模型参数文件
-   * `reports/`：计划用于保存文本报告（Accuracy/Kappa/混淆矩阵等）
-   * `visualizations/`：只放 PNG 可视化结果，便于前端直接引用
-
-2. **统一的命名习惯**
-
-   * 特征文件：`X.npy` / `y.npy`
-   * 模型参数：`[dataset]_svm.joblib`
-   * 可视化图片：`hsi_rgb.png` / `gt_labels.png` / `svm_pred_labels.png` / `svm_errors.png`
-
-3. **路径自动化**
-
-   * CLI 脚本与 FastAPI 服务中，统一使用该目录结构进行路径拼接；
-   * 后端接口会将 `visualizations` 中的图片通过 `/static/svm/...` 暴露给前端。
-
----
-
-## 🔄 迁移与扩展说明
-
-1. **新增数据集时**：
-
-   * 在 `models/cnn/data/[NewDataset]/` 放置高光谱和 GT `.mat`；
-   * 在 `models/svm/data/[NewDataset]/` 下生成对应的 `X.npy` / `y.npy`；
-   * 在 `DATASET_CONFIGS` 中添加新配置，并创建 `visualizations/[NewDataset]/` 目录。
-
-2. **新增传统模型时（例如 RF、KNN）**：
-
-   * 建议在 `models/` 下创建新的顶层目录 `rf/`、`knn/` 等；
-   * 目录结构参照本文件，将代码、数据、模型、可视化分开管理；
-   * 在后端新增对应的服务文件（如 `rf_service.py`）和接口文档。
-
-通过以上规范，可以让 CNN 与 SVM 模块的结构保持一致，方便团队协作与后续扩展。

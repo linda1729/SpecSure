@@ -1,1 +1,1 @@
-# HybridSN API package
+from .predictor import SVMPredictor
