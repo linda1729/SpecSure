@@ -40,6 +40,7 @@ def train(args):
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path)
+    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     
     #加载基本数据以及数据的预处理
     X, y, K, output_units = load_dataset(dataset, data_path, args.pca_components_ip, args.pca_components_other)
@@ -114,7 +115,8 @@ def train(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     report_dir = os.path.join(cnn_dir, 'reports', 'HybridSN')
     os.makedirs(report_dir, exist_ok=True)
-    report_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_report_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.txt"
+    suffix = f"pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}"
+    report_name = f"{dataset_name}_report_{suffix}.txt"
     report_path = os.path.join(report_dir, report_name)
     
     with open(report_path, 'w') as f:
@@ -130,7 +132,7 @@ def train(args):
     # 保存混淆矩阵可视化
     cm_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(cm_dir, exist_ok=True)
-    cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
+    cm_name = f"{dataset_name}_confusion_{suffix}.png"
     cm_path = os.path.join(cm_dir, cm_name)
     # 尝试加载 CSV 中的人类可读类名映射
     class_name_map = load_class_names(dataset, data_path)
@@ -138,26 +140,40 @@ def train(args):
         class_names = [class_name_map.get(i+1, str(i+1)) for i in range(confusion.shape[0])]
     else:
         class_names = [str(i+1) for i in range(confusion.shape[0])]
-    visualize_confusion_matrix(confusion, class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion Matrix")
+    visualize_confusion_matrix(confusion, class_names, cm_path, title=f"{dataset_name} Confusion Matrix")
     print(f'Confusion matrix saved to: {cm_path}')
     
     # 完整图预测
     outputs = predict_full_image(model, X, y, pca, window_size, device)
-    
+
     # 保存可视化结果
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-    pred_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_prediction_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
-    gt_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_groundtruth.png"
+    pred_name = f"{dataset_name}_prediction_{suffix}.png"
+    gt_name = f"{dataset_name}_groundtruth_{suffix}.png"
     pred_path = os.path.join(viz_dir, pred_name)
     gt_path = os.path.join(viz_dir, gt_name)
-    
+
     spectral.save_rgb(pred_path, outputs.astype(int), colors=spectral.spy_colors)
     spectral.save_rgb(gt_path, y, colors=spectral.spy_colors)
     print(f'Visualizations saved to: {pred_path} and {gt_path}')
+    # 推理混淆矩阵（基于完整图）
+    mask_full = y > 0
+    y_true_full = y[mask_full].ravel()
+    y_pred_full = outputs[mask_full].ravel().astype(int)
+    if y_true_full.size > 0:
+        cm_full = confusion_matrix(y_true_full, y_pred_full)
+        cm_infer_name = f"{dataset_name}_confusion_infer_{suffix}.png"
+        cm_infer_path = os.path.join(viz_dir, cm_infer_name)
+        if class_name_map is not None:
+            cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm_full.shape[0])]
+        else:
+            cm_class_names = [str(i+1) for i in range(cm_full.shape[0])]
+        visualize_confusion_matrix(cm_full, cm_class_names, cm_infer_path, title=f"{dataset_name} Confusion (Inference)")
+        print(f'Inference confusion matrix saved to: {cm_infer_path}')
     # 生成伪彩色、分类图、标注对比图
     try:
-        generate_all_visualizations(outputs, y, X, viz_dir, dataset, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
+        generate_all_visualizations(outputs, y, X, viz_dir, dataset_name, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
     except Exception as e:
         print(f'Warning: generate_all_visualizations failed: {e}')
 
@@ -166,6 +182,7 @@ def test(args):
     window_size = args.window_size
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path)
+    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     # 加载原始数据
     X, y = load_data(dataset, data_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -193,7 +210,8 @@ def test(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-    gt_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_groundtruth.png"
+    suffix = f"pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}"
+    gt_name = f"{dataset_name}_groundtruth_{suffix}.png"
     gt_path = os.path.join(viz_dir, gt_name)
     
     spectral.save_rgb(args.output_prediction_path, outputs.astype(int), colors=spectral.spy_colors)
@@ -204,7 +222,7 @@ def test(args):
     # 加载人类可读类名（若存在）
     class_name_map = load_class_names(dataset, data_path)
     try:
-        generate_all_visualizations(outputs, y, X, viz_dir, dataset, K, window_size, class_names=class_name_map)
+        generate_all_visualizations(outputs, y, X, viz_dir, dataset_name, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
     except Exception as e:
         print(f'Warning: generate_all_visualizations failed during inference: {e}')
 
@@ -214,7 +232,7 @@ def test(args):
     y_pred = outputs[mask].ravel().astype(int)
     if y_true.size > 0:
         cm = confusion_matrix(y_true, y_pred)
-        cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_infer_pca={K}_window={window_size}.png"
+        cm_name = f"{dataset_name}_confusion_infer_{suffix}.png"
         cm_path = os.path.join(viz_dir, cm_name)
         if class_name_map is not None:
             cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm.shape[0])]
@@ -251,14 +269,16 @@ def main():
         model_dir = os.path.join(cnn_dir, 'trained_models', 'HybridSN')
         os.makedirs(model_dir, exist_ok=True)
         K = args.pca_components_ip if args.dataset == 'IP' else args.pca_components_other
-        model_name = f"{DATASET_FOLDERS.get(args.dataset, args.dataset)}_model_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.pth"
+        suffix = f"pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}"
+        model_name = f"{DATASET_FOLDERS.get(args.dataset, args.dataset)}_model_{suffix}.pth"
         args.model_path = os.path.join(model_dir, model_name)
-    
+
     if args.output_prediction_path is None:
         viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
         os.makedirs(viz_dir, exist_ok=True)
         K = args.pca_components_ip if args.dataset == 'IP' else args.pca_components_other
-        viz_name = f"{DATASET_FOLDERS.get(args.dataset, args.dataset)}_prediction_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
+        suffix = f"pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}"
+        viz_name = f"{DATASET_FOLDERS.get(args.dataset, args.dataset)}_prediction_{suffix}.png"
         args.output_prediction_path = os.path.join(viz_dir, viz_name)
     
     if args.inference_only:

@@ -1,4 +1,6 @@
 import os
+import os
+import shutil
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -116,20 +118,27 @@ def visualize_comparison(pred, gt, out_path, title='Prediction vs Ground Truth',
     plt.close()
 
 
-def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, window, lr=None, epochs=None, class_names=None):
-    dataset_name = dataset
-    suffix = f"_pca={K}_window={window}_lr={lr}_epochs={epochs}"
-    if lr is not None and epochs is not None:
-        suffix += f"_lr={lr}_epochs={epochs}"
-    pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor{suffix}.png")
+def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K, window, lr=None, epochs=None, class_names=None):
+    suffix_parts = [f"pca={K}", f"window={window}"]
+    if lr is not None:
+        suffix_parts.append(f"lr={lr}")
+    if epochs is not None:
+        suffix_parts.append(f"epochs={epochs}")
+    suffix = "_".join(suffix_parts)
+    pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor_{suffix}.png")
     try:
         visualize_pseudo_color(X_original, pc_path, title=f"{dataset_name} Pseudo Color")
     except Exception as e:
         print(f"警告：伪彩色生成失败: {e}")
-    cls_path = os.path.join(base_path, f"{dataset_name}_classification{suffix}.png")
+    cls_path = os.path.join(base_path, f"{dataset_name}_classification_{suffix}.png")
     visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
-    cmp_path = os.path.join(base_path, f"{dataset_name}_comparison{suffix}.png")
+    cmp_path = os.path.join(base_path, f"{dataset_name}_comparison_{suffix}.png")
     visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
+    comprasion_path = os.path.join(base_path, f"{dataset_name}_comprasion_{suffix}.png")
+    try:
+        shutil.copyfile(cmp_path, comprasion_path)
+    except Exception:
+        pass
     print(f"已生成可视化产物：")
     print(f"  - 伪彩色: {pc_path}")
     print(f"  - 分类图: {cls_path}")

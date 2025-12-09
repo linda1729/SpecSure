@@ -22,6 +22,7 @@
         <div class="logo">SpecSure</div>
         <button class="nav-item active" data-view="data">数据集</button>
         <button class="nav-item" data-view="train">训练 / 推理</button>
+        <button class="nav-item" data-view="eval">评估</button>
         <button class="nav-item" data-view="artifacts">产物</button>
         <button id="btnDocs" class="nav-item ghost">API Docs</button>
       </aside>
@@ -147,6 +148,11 @@
             </div>
           </div>
 
+          <div class="card">
+            <p class="eyebrow">类别标签 (来自 CSV)</p>
+            <div id="classNamesBox" class="class-names muted tiny">等待选择数据集...</div>
+          </div>
+
           <div class="card grid-2">
             <div class="module">
               <p class="eyebrow">评估指标 / 产物</p>
@@ -162,12 +168,28 @@
                   <img id="imgPrediction" class="preview-img" alt="prediction" />
                 </div>
                 <div>
+                  <p class="muted">Ground Truth</p>
+                  <img id="imgGT" class="preview-img" alt="ground truth" />
+                </div>
+                <div>
                   <p class="muted">混淆矩阵</p>
                   <img id="imgConfusion" class="preview-img" alt="confusion" />
                 </div>
                 <div>
-                  <p class="muted">Ground Truth</p>
-                  <img id="imgGT" class="preview-img" alt="ground truth" />
+                  <p class="muted">推理混淆</p>
+                  <img id="imgInferConfusion" class="preview-img" alt="inference confusion" />
+                </div>
+                <div>
+                  <p class="muted">伪彩色</p>
+                  <img id="imgPseudo" class="preview-img" alt="pseudo color" />
+                </div>
+                <div>
+                  <p class="muted">分类图</p>
+                  <img id="imgClassify" class="preview-img" alt="classification" />
+                </div>
+                <div class="wide">
+                  <p class="muted">对比图 (预测 vs GT)</p>
+                  <img id="imgCompare" class="preview-img" alt="comparison" />
                 </div>
               </div>
               <pre id="runLogs" class="log-box small">// 运行日志尾部</pre>
@@ -179,7 +201,7 @@
         <section class="view" id="view-artifacts">
           <div class="view-header">
             <div>
-              <p class="eyebrow">STEP 3</p>
+              <p class="eyebrow">STEP 4</p>
               <h1>产物归档</h1>
             </div>
           </div>
@@ -198,6 +220,20 @@
                 <div id="artifactVisuals" class="list muted"></div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- 评估 -->
+        <section class="view" id="view-eval">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">STEP 3</p>
+              <h1>评估指标与可视化</h1>
+            </div>
+            <div class="status muted">解析 reports/HybridSN 与 visualizations/HybridSN</div>
+          </div>
+          <div class="card">
+            <div id="evaluationList" class="eval-list"></div>
           </div>
         </section>
       </main>

@@ -9,7 +9,7 @@
   - `dataset`: `IP | SA | PU`
   - `hsi_file`: 高光谱 `.mat`
   - `gt_file`: GT `.mat`
-  → `{ "dataset": { id, name, ready, data_file, gt_file, ... } }`
+  → `{ "dataset": { id, name, ready, data_file, gt_file, class_names, ... } }`
 
 ## 训练 / 推理（HybridSN）
 - `POST /api/cnn/train`
@@ -34,8 +34,9 @@
   - `job_id`: 异步任务 ID（用于轮询）
   - `status`/`progress`: 任务状态与百分比，`pending/running/succeeded/failed`
   - `command`: 实际执行的 CLI
-  - `artifacts`: 模型、PCA、报告、可视化的路径与可直接访问的 `url`
+  - `artifacts`: 模型、PCA、报告、可视化的路径与可直接访问的 `url`（含预测/伪彩/分类/对比/混淆图）
   - `metrics`: 训练评估（从报告解析，推理模式为空）
+  - `class_names`: 若 data 目录下存在 `[Dataset].CSV`，返回标签映射
   - `logs_tail`: 运行日志尾部
 
 > 实际调用 `models/cnn/code/HybridSN/train.py`，产物命名遵循 `cnn-说明文档.md`。
@@ -44,6 +45,9 @@
 
 ## 产物列表
 - `GET /api/cnn/artifacts`：列出 `trained_models/HybridSN`、`reports/HybridSN`、`visualizations/HybridSN` 下的文件，含可访问 URL。
+
+## 评估列表
+- `GET /api/cnn/evaluations`：解析 `reports/HybridSN/*.txt` 与可视化命名，返回每组超参对应的指标、可视化路径与类目标签。
 
 ## 预留
 - `POST /api/cnn/svm/train`：SVM 入口预留，暂未实现。
