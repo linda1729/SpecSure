@@ -12,8 +12,8 @@ models/cnn/
 │       ├── README.md                  # HybridSN 使用说明
 │       ├── model.py                   # 模型结构定义
 │       ├── train.py                   # 训练主脚本
-│       ├── train_utils.py             # 训练工具函数
-│       ├── utils.py                   # 通用工具
+│       ├── visualization.py             # 可视化工具函数
+│       ├── utils.py                   # 训练工具函数
 │       └── api/                       # FastAPI 推理接口
 │           ├── __init__.py
 │           └── predictor.py           # 推理类
@@ -96,18 +96,6 @@ predictor = HybridSNPredictor(
 )
 result = predictor.predict(data)
 ```
-
-## 🔄 迁移说明
-
-### 原始文件位置变化
-- `HybridSN/hybridsn_pytorch.py` → `code/HybridSN/train.py`
-- `HybridSN/model.py` → `code/HybridSN/model.py`
-- `HybridSN/api/` → `code/HybridSN/api/`
-- `HybridSN/data/Indian_pines_*.mat` → `data/IndianPines/IndianPines_*.mat`
-- `HybridSN/data/Salinas_*.mat` → `data/Salinas/Salinas_*.mat`
-- `HybridSN/data/PaviaU*.mat` → `data/PaviaU/PaviaU_*.mat`
-- `HybridSN/best_model.pth` → `trained_models/HybridSN/Salinas_model_*.pth`
-- `HybridSN/classification_report_pytorch.txt` → `reports/HybridSN/Salinas_report_*.txt`
 
 ## ✨ 优势
 

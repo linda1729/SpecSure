@@ -8,7 +8,7 @@ import spectral
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, cohen_kappa_score
 from model import HybridSN
-from train_utils import (
+from utils import (
     REQUIRED_FILES,
     DATASET_FOLDERS,
     resolve_data_path,
@@ -26,7 +26,11 @@ from train_utils import (
     predict_full_image,
     train_epoch,
     eval_epoch,
+    load_class_names,
+)
+from visualization import (
     visualize_confusion_matrix,
+    generate_all_visualizations,
 )
 
 
@@ -128,7 +132,12 @@ def train(args):
     os.makedirs(cm_dir, exist_ok=True)
     cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
     cm_path = os.path.join(cm_dir, cm_name)
-    class_names = [str(i+1) for i in range(confusion.shape[0])]
+    # 尝试加载 CSV 中的人类可读类名映射
+    class_name_map = load_class_names(dataset, data_path)
+    if class_name_map is not None:
+        class_names = [class_name_map.get(i+1, str(i+1)) for i in range(confusion.shape[0])]
+    else:
+        class_names = [str(i+1) for i in range(confusion.shape[0])]
     visualize_confusion_matrix(confusion, class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion Matrix")
     print(f'Confusion matrix saved to: {cm_path}')
     
@@ -146,6 +155,11 @@ def train(args):
     spectral.save_rgb(pred_path, outputs.astype(int), colors=spectral.spy_colors)
     spectral.save_rgb(gt_path, y, colors=spectral.spy_colors)
     print(f'Visualizations saved to: {pred_path} and {gt_path}')
+    # 生成伪彩色、分类图、标注对比图
+    try:
+        generate_all_visualizations(outputs, y, X, viz_dir, dataset, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
+    except Exception as e:
+        print(f'Warning: generate_all_visualizations failed: {e}')
 
 def test(args):
     dataset = args.dataset
@@ -186,6 +200,14 @@ def test(args):
     spectral.save_rgb(gt_path, y, colors=spectral.spy_colors)
     print(f'Inference finished. Saved: {args.output_prediction_path} and {gt_path}')
 
+    # 生成伪彩色、分类图、标注对比图（推理模式）
+    # 加载人类可读类名（若存在）
+    class_name_map = load_class_names(dataset, data_path)
+    try:
+        generate_all_visualizations(outputs, y, X, viz_dir, dataset, K, window_size, class_names=class_name_map)
+    except Exception as e:
+        print(f'Warning: generate_all_visualizations failed during inference: {e}')
+
     # 计算并保存推理混淆矩阵及其可视化（仅统计有标签区域）
     mask = y > 0
     y_true = y[mask].ravel()
@@ -194,8 +216,11 @@ def test(args):
         cm = confusion_matrix(y_true, y_pred)
         cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_infer_pca={K}_window={window_size}.png"
         cm_path = os.path.join(viz_dir, cm_name)
-        class_names = [str(i+1) for i in range(cm.shape[0])]
-        visualize_confusion_matrix(cm, class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion (Inference)")
+        if class_name_map is not None:
+            cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm.shape[0])]
+        else:
+            cm_class_names = [str(i+1) for i in range(cm.shape[0])]
+        visualize_confusion_matrix(cm, cm_class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion (Inference)")
         print(f'Inference confusion matrix saved to: {cm_path}')
 
 

@@ -34,22 +34,6 @@ sio.savemat('dataset_index.mat', {
 })
 ```
 
-### MATLAB 创建示例
-
-```matlab
-% 假设总样本数为 10000
-total_samples = 10000;
-indices = randperm(total_samples);
-
-% 80% 训练，20% 测试
-split_point = floor(total_samples * 0.8);
-train_indices = indices(1:split_point);
-test_indices = indices(split_point+1:end);
-
-% 保存
-save('dataset_index.mat', 'train_indices', 'test_indices');
-```
-
 ## 使用方法
 
 在训练脚本中加载索引：
