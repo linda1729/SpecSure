@@ -1,4 +1,6 @@
 import os
+import os
+import shutil
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -133,6 +135,7 @@ def visualize_comparison(pred, gt, out_path, title='Prediction vs Ground Truth',
     plt.close()
 
 
+<<<<<<< HEAD
 def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, window, lr=None, epochs=None, class_names=None):
     dataset_name = dataset
     # 构建稳健的后缀，避免重复与 None 字符串
@@ -144,12 +147,23 @@ def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, win
     saved_paths = []
 
     pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor{suffix}.png")
+=======
+def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K, window, lr=None, epochs=None, class_names=None):
+    suffix_parts = [f"pca={K}", f"window={window}"]
+    if lr is not None:
+        suffix_parts.append(f"lr={lr}")
+    if epochs is not None:
+        suffix_parts.append(f"epochs={epochs}")
+    suffix = "_".join(suffix_parts)
+    pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor_{suffix}.png")
+>>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     try:
         print(f"[visualization] pseudo_color input shapes: pred={getattr(pred, 'shape', None)}, gt={getattr(gt, 'shape', None)}, X_original={getattr(X_original, 'shape', None)}")
         visualize_pseudo_color(X_original, pc_path, title=f"{dataset_name} Pseudo Color")
         saved_paths.append(pc_path)
     except Exception as e:
         print(f"警告：伪彩色生成失败: {e}")
+<<<<<<< HEAD
 
     cls_path = os.path.join(base_path, f"{dataset_name}_classification{suffix}.png")
     try:
@@ -172,3 +186,19 @@ def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, win
     else:
         print("未生成任何可视化产物（全部失败或无可用数据）")
     return saved_paths
+=======
+    cls_path = os.path.join(base_path, f"{dataset_name}_classification_{suffix}.png")
+    visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
+    cmp_path = os.path.join(base_path, f"{dataset_name}_comparison_{suffix}.png")
+    visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
+    comprasion_path = os.path.join(base_path, f"{dataset_name}_comprasion_{suffix}.png")
+    try:
+        shutil.copyfile(cmp_path, comprasion_path)
+    except Exception:
+        pass
+    print(f"已生成可视化产物：")
+    print(f"  - 伪彩色: {pc_path}")
+    print(f"  - 分类图: {cls_path}")
+    print(f"  - 对比图: {cmp_path}")
+    return [pc_path, cls_path, cmp_path]
+>>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85

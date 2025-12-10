@@ -15,6 +15,7 @@ class DatasetInfo(BaseModel):
     ready: bool
     data_path: str
     gt_path: str
+    class_names: Optional[Dict[int, str]] = None
 
 
 class UploadResponse(BaseModel):
@@ -29,6 +30,9 @@ class ArtifactURLs(BaseModel):
     prediction: Optional[str] = None
     groundtruth: Optional[str] = None
     inference_confusion: Optional[str] = None
+    pseudocolor: Optional[str] = None
+    classification: Optional[str] = None
+    comparison: Optional[str] = None
 
 
 class ArtifactPaths(BaseModel):
@@ -39,6 +43,9 @@ class ArtifactPaths(BaseModel):
     prediction_path: Optional[str] = None
     groundtruth_path: Optional[str] = None
     inference_confusion_path: Optional[str] = None
+    pseudocolor_path: Optional[str] = None
+    classification_path: Optional[str] = None
+    comparison_path: Optional[str] = None
     urls: ArtifactURLs = ArtifactURLs()
 
 
@@ -77,6 +84,7 @@ class TrainResponse(BaseModel):
     finished_at: Optional[datetime] = None
     pid: Optional[int] = None
     error: Optional[str] = None
+    class_names: Optional[Dict[int, str]] = None
 
 
 class ArtifactItem(BaseModel):
@@ -89,3 +97,17 @@ class ArtifactListing(BaseModel):
     models: List[ArtifactItem] = []
     reports: List[ArtifactItem] = []
     visualizations: List[ArtifactItem] = []
+
+
+class EvaluationItem(BaseModel):
+    dataset: str
+    dataset_name: str
+    window_size: int
+    pca_components: int
+    lr: float
+    epochs: int
+    metrics: Optional[Dict[str, float]] = None
+    artifacts: ArtifactPaths
+    report_path: Optional[str] = None
+    report_url: Optional[str] = None
+    class_names: Optional[Dict[int, str]] = None

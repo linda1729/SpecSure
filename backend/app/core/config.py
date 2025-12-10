@@ -42,6 +42,8 @@ DATASET_DEFINITIONS: Dict[str, Dict[str, str]] = {
     },
 }
 
+DATASET_FOLDER_TO_ID = {v["folder"]: k for k, v in DATASET_DEFINITIONS.items()}
+
 DEFAULT_HYPERPARAMS = {
     "test_ratio": 0.3,
     "window_size": 25,

@@ -1,0 +1,12 @@
+SVM Training Report
+Dataset: paviaU
+Kernel: rbf
+C: 10.0
+Gamma: scale
+Test Size: 0.2
+Accuracy: 0.925549322113137
+Kappa: 0.85
+Confusion Matrix: [[0, 1], [1, 0]]
+Classification Report: precision    recall  f1-score   support
+1     0.8182    1.0000    0.9000         9
+2     0.8261    0.8636    0.8444       286

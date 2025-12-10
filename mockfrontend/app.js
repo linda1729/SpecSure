@@ -15,6 +15,8 @@ const state = {
   datasets: [],
   defaults: null,
   artifacts: { models: [], reports: [], visualizations: [] },
+  evaluations: [],
+  classMap: {},
   lastRun: null,
   currentJobId: null,
   pollTimer: null,
@@ -86,6 +88,7 @@ async function pollJob(jobId) {
     } else {
       stopPolling();
       await loadArtifacts();
+      await loadEvaluations();
       log(data.message || statusText || "任务完成");
     }
   } catch (err) {
@@ -118,9 +121,32 @@ function toUrl(url) {
   return `${API_BASE}${url}`;
 }
 
+function getClassNames(datasetId) {
+  if (!datasetId) return null;
+  return state.classMap[datasetId] || state.datasets.find((d) => d.id === datasetId)?.class_names || null;
+}
+
+function classLegendHTML(classNames) {
+  if (!classNames || !Object.keys(classNames).length) {
+    return '<div class="muted tiny">暂无标签 CSV</div>';
+  }
+  return Object.entries(classNames)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([k, v]) => `<span class="chip"><span class="chip-id">${k}</span>${v}</span>`)
+    .join("");
+}
+
+function renderClassLegend(classNames, targetId = "classNamesBox") {
+  const box = $(targetId);
+  if (!box) return;
+  const html = classLegendHTML(classNames);
+  box.innerHTML = html || '<div class="muted tiny">当前数据集未提供标签 CSV，默认显示数字类标。</div>';
+}
+
 function chooseDataset(id) {
   if ($("uploadDataset")) $("uploadDataset").value = id;
   if ($("trainDataset")) $("trainDataset").value = id;
+  renderClassLegend(getClassNames(id));
   log(`已选择数据集 ${id}，可直接训练/推理`);
 }
 
@@ -149,6 +175,7 @@ function renderDatasets() {
         <div><span class="meta-label">Key</span><div class="ellipsis">${ds.data_key}</div></div>
         <div><span class="meta-label">GT Key</span><div class="ellipsis">${ds.gt_key}</div></div>
       </div>
+      <div class="class-chip-row">${classLegendHTML(ds.class_names || null)}</div>
       <div class="muted tiny">目录: ${ds.data_path.replace(ds.data_file, "")}</div>
       <div class="actions">
         <button class="btn ghost btn-use-dataset" data-id="${ds.id}" ${ds.ready ? "" : "disabled"}>使用此数据集</button>
@@ -180,6 +207,7 @@ function fillDatasetSelects() {
   if (firstReady) {
     if ($("uploadDataset")) $("uploadDataset").value = firstReady.id;
     if ($("trainDataset")) $("trainDataset").value = firstReady.id;
+    renderClassLegend(getClassNames(firstReady.id));
   }
 }
 
@@ -213,6 +241,10 @@ async function loadDefaults() {
     const data = await fetchJSON(`${API_BASE}/api/cnn/defaults`);
     state.defaults = data.hyperparams || {};
     state.datasets = data.datasets || [];
+    state.classMap = {};
+    state.datasets.forEach((ds) => {
+      if (ds.class_names) state.classMap[ds.id] = ds.class_names;
+    });
     renderDatasets();
     setDefaultParams();
     log("默认参数已加载");
@@ -225,6 +257,10 @@ async function refreshDatasets() {
   try {
     const data = await fetchJSON(`${API_BASE}/api/cnn/datasets`);
     state.datasets = data;
+    state.classMap = {};
+    state.datasets.forEach((ds) => {
+      if (ds.class_names) state.classMap[ds.id] = ds.class_names;
+    });
     renderDatasets();
     log("数据集状态已刷新");
   } catch (err) {
@@ -292,6 +328,16 @@ async function loadArtifacts() {
   }
 }
 
+async function loadEvaluations() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/api/cnn/evaluations`);
+    state.evaluations = data || [];
+    renderEvaluations();
+  } catch (err) {
+    log(`加载评估结果失败: ${err.message}`);
+  }
+}
+
 function renderArtifacts() {
   const renderList = (containerId, items, emptyText) => {
     const el = $(containerId);
@@ -314,8 +360,84 @@ function renderArtifacts() {
   renderList("artifactVisuals", state.artifacts?.visualizations, "暂无可视化");
 }
 
+function renderEvaluations() {
+  const box = $("evaluationList");
+  if (!box) return;
+  if (!state.evaluations.length) {
+    box.innerHTML = '<div class="muted">暂无评估报告，先运行一次训练即可生成。</div>';
+    return;
+  }
+  box.innerHTML = "";
+  state.evaluations.forEach((item) => {
+    const metrics = item.metrics || {};
+    const art = item.artifacts || {};
+    const urls = art.urls || {};
+    const visuals = [
+      ["预测", urls.prediction || art.prediction_path],
+      ["GT", urls.groundtruth || art.groundtruth_path],
+      ["混淆矩阵", urls.confusion || art.confusion_path],
+      ["推理混淆", urls.inference_confusion || art.inference_confusion_path],
+      ["伪彩色", urls.pseudocolor || art.pseudocolor_path],
+      ["分类图", urls.classification || art.classification_path],
+      ["对比图", urls.comparison || art.comparison_path],
+    ];
+    const metricHtml = Object.entries(metrics)
+      .map(([k, v]) => `<div class="metric-row"><span>${k}</span><strong>${Number(v).toFixed(3)}</strong></div>`)
+      .join("");
+    const visualHtml = visuals
+      .filter(([, url]) => !!url)
+      .map(
+        ([label, url]) => `
+        <div class="thumb">
+          <p class="muted tiny">${label}</p>
+          <a href="${toUrl(url)}" target="_blank">
+            <img src="${toUrl(url)}" alt="${label}" />
+          </a>
+        </div>
+      `
+      )
+      .join("");
+    const legendHtml = `<div class="class-names">${classLegendHTML(item.class_names || getClassNames(item.dataset))}</div>`;
+    const hyper = `PCA=${item.pca_components} · Window=${item.window_size} · LR=${item.lr} · Epochs=${item.epochs}`;
+    const reportHref = toUrl(item.report_url || item.report_path);
+    const reportLink = reportHref
+      ? `<a class="btn ghost" href="${reportHref}" target="_blank">报告</a>`
+      : '<span class="muted tiny">报告缺失</span>';
+    const card = document.createElement("div");
+    card.className = "eval-card";
+    card.innerHTML = `
+      <div class="eval-head">
+        <div>
+          <p class="eyebrow">评估</p>
+          <h3>${item.dataset_name} (${item.dataset})</h3>
+          <div class="muted tiny">${hyper}</div>
+        </div>
+        ${reportLink}
+      </div>
+      <div class="eval-body">
+        <div class="eval-metrics">${metricHtml || '<div class="muted tiny">报告中未解析到指标</div>'}</div>
+        <div class="eval-legend">${legendHtml}</div>
+      </div>
+      <div class="thumb-grid">${visualHtml || '<div class="muted tiny">暂未生成可视化</div>'}</div>
+    `;
+    box.appendChild(card);
+  });
+}
+
 function renderRunResult(data) {
   if (!data) return;
+  renderClassLegend(data.class_names || getClassNames(data.dataset));
+  const setImg = (id, url) => {
+    const img = $(id);
+    if (!img) return;
+    if (url) {
+      img.src = toUrl(url);
+      img.parentElement?.classList?.remove("muted");
+    } else {
+      img.removeAttribute("src");
+      img.parentElement?.classList?.add("muted");
+    }
+  };
   const metricsBox = $("metricsBox");
   if (metricsBox) {
     const metrics = data.metrics || {};
@@ -335,9 +457,13 @@ function renderRunResult(data) {
   if ($("runMessage")) $("runMessage").textContent = data.message || statusText || "";
   const art = data.artifacts || {};
   const urls = art.urls || {};
-  if ($("imgPrediction")) $("imgPrediction").src = toUrl(urls.prediction || art.prediction_path);
-  if ($("imgConfusion")) $("imgConfusion").src = toUrl(urls.confusion || art.confusion_path);
-  if ($("imgGT")) $("imgGT").src = toUrl(urls.groundtruth || art.groundtruth_path);
+  setImg("imgPrediction", urls.prediction || art.prediction_path);
+  setImg("imgConfusion", urls.confusion || art.confusion_path);
+  setImg("imgGT", urls.groundtruth || art.groundtruth_path);
+  setImg("imgPseudo", urls.pseudocolor || art.pseudocolor_path);
+  setImg("imgClassify", urls.classification || art.classification_path);
+  setImg("imgCompare", urls.comparison || art.comparison_path);
+  setImg("imgInferConfusion", urls.inference_confusion || art.inference_confusion_path);
   const linkBox = $("artifactLinks");
   if (linkBox) {
     linkBox.innerHTML = "";
@@ -349,6 +475,9 @@ function renderRunResult(data) {
       ["预测", urls.prediction || art.prediction_path],
       ["GT", urls.groundtruth || art.groundtruth_path],
       ["推理混淆", urls.inference_confusion || art.inference_confusion_path],
+      ["伪彩色", urls.pseudocolor || art.pseudocolor_path],
+      ["分类图", urls.classification || art.classification_path],
+      ["对比图", urls.comparison || art.comparison_path],
     ];
     pairs.forEach(([label, url]) => {
       if (!url) return;
@@ -388,6 +517,7 @@ async function runHybrid(mode) {
       pollJob(data.job_id);
     } else {
       await loadArtifacts();
+      await loadEvaluations();
       log(data.message || `HybridSN ${isInfer ? "推理" : "训练"}完成`);
     }
   } catch (err) {
@@ -422,6 +552,10 @@ function bindEvents() {
       setDefaultParams();
       log("已恢复默认超参");
     });
+  if ($("trainDataset"))
+    $("trainDataset").addEventListener("change", (e) => {
+      renderClassLegend(getClassNames(e.target.value));
+    });
   if ($("btnFillDefaultModel"))
     $("btnFillDefaultModel").addEventListener("click", () => {
       const path = defaultModelPath();
@@ -437,6 +571,7 @@ async function init() {
   updateProgressUI(0, "等待执行");
   await loadDefaults();
   await loadArtifacts();
+  await loadEvaluations();
   log("前端就绪，按顺序进行数据→训练→查看产物");
 }
 

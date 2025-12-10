@@ -15,6 +15,7 @@ from ..core.config import (
     CNN_DATA_DIR,
     CNN_ROOT,
     DATASET_DEFINITIONS,
+    DATASET_FOLDER_TO_ID,
     DEFAULT_HYPERPARAMS,
     HYBRID_CODE_DIR,
     REPORT_DIR,
@@ -22,11 +23,15 @@ from ..core.config import (
     VIS_DIR,
     ensure_cnn_directories,
 )
-from ..schemas import ArtifactItem, ArtifactListing, ArtifactPaths, CnnTrainRequest, DatasetInfo, TrainResponse, UploadResponse
+from ..schemas import ArtifactItem, ArtifactListing, ArtifactPaths, CnnTrainRequest, DatasetInfo, EvaluationItem, TrainResponse, UploadResponse
 
 router = APIRouter(tags=["cnn"])
 
 EPOCH_PATTERN = re.compile(r"Epoch\s+(\d+)", re.IGNORECASE)
+REPORT_NAME_PATTERN = re.compile(
+    r"(?P<dataset>[A-Za-z0-9]+)_report_pca=(?P<pca>[^_]+)_window=(?P<window>[^_]+)_lr=(?P<lr>[^_]+)_epochs=(?P<epochs>[^.]+)\.txt",
+    re.IGNORECASE,
+)
 MAX_LOG_LINES = 400
 
 
@@ -132,6 +137,7 @@ def _job_to_response(job: CnnJob, message: Optional[str] = None) -> TrainRespons
         finished_at=job.finished_at,
         pid=job.pid,
         error=job.error,
+        class_names=_read_class_names(job.req.dataset),
     )
 
 
@@ -173,12 +179,36 @@ def _execute_job(job: CnnJob) -> None:
         job.finished_at = datetime.utcnow()
 
 
+def _read_class_names(dataset_id: str) -> Optional[Dict[int, str]]:
+    cfg = DATASET_DEFINITIONS[dataset_id]
+    csv_path = CNN_DATA_DIR / cfg["folder"] / f"{cfg['folder']}.CSV"
+    if not csv_path.exists():
+        return None
+    mapping: Dict[int, str] = {}
+    try:
+        with csv_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                parts = [p.strip() for p in line.split(",")]
+                if not parts or not parts[0]:
+                    continue
+                try:
+                    cid = int(parts[0])
+                except ValueError:
+                    continue
+                name = parts[1] if len(parts) > 1 and parts[1] else str(cid)
+                mapping[cid] = name
+    except Exception:
+        return None
+    return mapping or None
+
+
 def _dataset_info(dataset_id: str) -> DatasetInfo:
     cfg = DATASET_DEFINITIONS[dataset_id]
     folder = CNN_DATA_DIR / cfg["folder"]
     data_path = folder / cfg["data_file"]
     gt_path = folder / cfg["gt_file"]
     ready = data_path.exists() and gt_path.exists()
+    class_names = _read_class_names(dataset_id)
     return DatasetInfo(
         id=dataset_id,
         name=cfg["name"],
@@ -190,6 +220,7 @@ def _dataset_info(dataset_id: str) -> DatasetInfo:
         ready=ready,
         data_path=str(data_path),
         gt_path=str(gt_path),
+        class_names=class_names,
     )
 
 
@@ -201,29 +232,52 @@ def _to_url(path: Path) -> str:
         return ""
 
 
-def _artifact_paths(dataset: str, req: CnnTrainRequest) -> ArtifactPaths:
+def _artifact_paths_for_params(
+    dataset: str,
+    window_size: int,
+    k: int,
+    lr: float,
+    epochs: int,
+    model_path: Optional[str] = None,
+    prediction_path: Optional[str] = None,
+) -> ArtifactPaths:
     folder_name = DATASET_DEFINITIONS[dataset]["folder"]
-    k = req.pca_components_ip if dataset == "IP" else req.pca_components_other
-    model_name = f"{folder_name}_model_pca={k}_window={req.window_size}_lr={req.lr}_epochs={req.epochs}.pth"
-    report_name = f"{folder_name}_report_pca={k}_window={req.window_size}_lr={req.lr}_epochs={req.epochs}.txt"
-    confusion_name = f"{folder_name}_confusion_pca={k}_window={req.window_size}_lr={req.lr}_epochs={req.epochs}.png"
-    prediction_name = f"{folder_name}_prediction_pca={k}_window={req.window_size}_lr={req.lr}_epochs={req.epochs}.png"
-    gt_name = f"{folder_name}_groundtruth.png"
-    infer_cm_name = f"{folder_name}_confusion_infer_pca={k}_window={req.window_size}.png"
+    suffix = f"pca={k}_window={window_size}_lr={lr}_epochs={epochs}"
+
+    model_name = f"{folder_name}_model_{suffix}.pth"
+    report_name = f"{folder_name}_report_{suffix}.txt"
+    confusion_name = f"{folder_name}_confusion_{suffix}.png"
+    prediction_name = f"{folder_name}_prediction_{suffix}.png"
+    gt_name = f"{folder_name}_groundtruth_{suffix}.png"
+    infer_cm_name = f"{folder_name}_confusion_infer_{suffix}.png"
+    pseudocolor_name = f"{folder_name}_pseudocolor_{suffix}.png"
+    classification_name = f"{folder_name}_classification_{suffix}.png"
+    comparison_name = f"{folder_name}_comparison_{suffix}.png"
 
     TRAINED_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     VIS_DIR.mkdir(parents=True, exist_ok=True)
 
-    model_path = Path(req.model_path) if req.model_path else TRAINED_DIR / model_name
+    model_path = Path(model_path) if model_path else TRAINED_DIR / model_name
     pca_path = Path(str(model_path) + ".pca.pkl")
     report_path = REPORT_DIR / report_name
     confusion_path = VIS_DIR / confusion_name
-    prediction_path = Path(req.output_prediction_path) if req.output_prediction_path else VIS_DIR / prediction_name
+    prediction_path = Path(prediction_path) if prediction_path else VIS_DIR / prediction_name
     gt_path = VIS_DIR / gt_name
     infer_cm_path = VIS_DIR / infer_cm_name
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    prediction_path.parent.mkdir(parents=True, exist_ok=True)
+    pseudocolor_path = VIS_DIR / pseudocolor_name
+    classification_path = VIS_DIR / classification_name
+    comparison_path = VIS_DIR / comparison_name
+
+    legacy_gt = VIS_DIR / f"{folder_name}_groundtruth.png"
+    if legacy_gt.exists():
+        gt_path = legacy_gt
+    legacy_infer_cm = VIS_DIR / f"{folder_name}_confusion_infer_pca={k}_window={window_size}.png"
+    if legacy_infer_cm.exists():
+        infer_cm_path = legacy_infer_cm
+
+    for p in [model_path, pca_path, report_path, confusion_path, prediction_path, gt_path, infer_cm_path, pseudocolor_path, classification_path, comparison_path]:
+        p.parent.mkdir(parents=True, exist_ok=True)
 
     return ArtifactPaths(
         model_path=str(model_path),
@@ -233,6 +287,9 @@ def _artifact_paths(dataset: str, req: CnnTrainRequest) -> ArtifactPaths:
         prediction_path=str(prediction_path),
         groundtruth_path=str(gt_path),
         inference_confusion_path=str(infer_cm_path),
+        pseudocolor_path=str(pseudocolor_path),
+        classification_path=str(classification_path),
+        comparison_path=str(comparison_path),
         urls={
             "model": _to_url(model_path),
             "pca": _to_url(pca_path),
@@ -241,7 +298,23 @@ def _artifact_paths(dataset: str, req: CnnTrainRequest) -> ArtifactPaths:
             "prediction": _to_url(prediction_path),
             "groundtruth": _to_url(gt_path),
             "inference_confusion": _to_url(infer_cm_path),
+            "pseudocolor": _to_url(pseudocolor_path),
+            "classification": _to_url(classification_path),
+            "comparison": _to_url(comparison_path),
         },
+    )
+
+
+def _artifact_paths(dataset: str, req: CnnTrainRequest) -> ArtifactPaths:
+    k = req.pca_components_ip if dataset == "IP" else req.pca_components_other
+    return _artifact_paths_for_params(
+        dataset=dataset,
+        window_size=req.window_size,
+        k=k,
+        lr=req.lr,
+        epochs=req.epochs,
+        model_path=req.model_path,
+        prediction_path=req.output_prediction_path,
     )
 
 
@@ -329,11 +402,98 @@ def _list_artifacts() -> ArtifactListing:
                 items.append(ArtifactItem(name=p.name, path=str(p), url=_to_url(p)))
         return items
 
+    def collect_visualizations(dir_path: Path) -> List[ArtifactItem]:
+        if not dir_path.exists():
+            return []
+        seen_keys = set()
+        items: List[ArtifactItem] = []
+        for p in sorted(dir_path.glob("*.png")):
+            if not p.is_file():
+                continue
+            key = p.name.replace("comprasion", "comparison")
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            items.append(ArtifactItem(name=p.name, path=str(p), url=_to_url(p)))
+        return items
+
     return ArtifactListing(
         models=collect(TRAINED_DIR, (".pth", ".pkl")),
         reports=collect(REPORT_DIR, (".txt",)),
-        visualizations=collect(VIS_DIR, (".png",)),
+        visualizations=collect_visualizations(VIS_DIR),
     )
+
+
+def _safe_int(val: str) -> Optional[int]:
+    try:
+        return int(float(val))
+    except Exception:
+        return None
+
+
+def _safe_float(val: str) -> Optional[float]:
+    try:
+        return float(val)
+    except Exception:
+        return None
+
+
+def _list_evaluations() -> List[EvaluationItem]:
+    ensure_cnn_directories()
+    items: Dict[tuple, EvaluationItem] = {}
+    for report_file in sorted(REPORT_DIR.glob("*.txt")):
+        match = REPORT_NAME_PATTERN.match(report_file.name)
+        if not match:
+            continue
+        folder_name = match.group("dataset")
+        dataset_id = DATASET_FOLDER_TO_ID.get(folder_name)
+        if not dataset_id:
+            continue
+        k = _safe_int(match.group("pca"))
+        window_size = _safe_int(match.group("window"))
+        lr = _safe_float(match.group("lr")) or 0.0
+        epochs = _safe_int(match.group("epochs"))
+        if k is None or window_size is None or epochs is None:
+            continue
+        artifacts = _artifact_paths_for_params(dataset_id, window_size, k, lr, epochs)
+        metrics = _parse_report(report_file)
+        key = (dataset_id, window_size, k, lr, epochs)
+        current = items.get(key)
+        # 同参数只保留最新修改时间的报告，避免评估重复
+        if current:
+            try:
+                new_mtime = report_file.stat().st_mtime
+                old_mtime = Path(current.report_path).stat().st_mtime
+                if new_mtime <= old_mtime:
+                    continue
+            except Exception:
+                continue
+        items[key] = EvaluationItem(
+            dataset=dataset_id,
+            dataset_name=DATASET_DEFINITIONS[dataset_id]["name"],
+            window_size=window_size,
+            pca_components=k,
+            lr=lr,
+            epochs=epochs,
+            metrics=metrics,
+            artifacts=artifacts,
+            report_path=str(report_file),
+            report_url=_to_url(report_file),
+            class_names=_read_class_names(dataset_id),
+        )
+    # 按数据集分组，优先最近修改时间
+    sorted_items = sorted(
+        items.values(),
+        key=lambda x: (
+            x.dataset,
+            -(Path(x.report_path).stat().st_mtime if Path(x.report_path).exists() else 0),
+        ),
+    )
+    latest_per_dataset: Dict[str, EvaluationItem] = {}
+    for item in sorted_items:
+        if item.dataset not in latest_per_dataset:
+            latest_per_dataset[item.dataset] = item
+    return list(latest_per_dataset.values())
 
 
 @router.get("/datasets", response_model=List[DatasetInfo])
@@ -377,6 +537,12 @@ async def defaults():
 async def artifacts():
     ensure_cnn_directories()
     return _list_artifacts()
+
+
+@router.get("/evaluations", response_model=List[EvaluationItem])
+async def evaluations():
+    ensure_cnn_directories()
+    return _list_evaluations()
 
 
 @router.post("/train", response_model=TrainResponse)
