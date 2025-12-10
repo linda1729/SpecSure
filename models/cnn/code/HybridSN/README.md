@@ -8,8 +8,8 @@ HybridSN 用于高光谱图像分类，结合 3D 和 2D 卷积神经网络的优
 HybridSN/
 ├── model.py            # HybridSN 模型定义
 ├── train.py            # 训练与评估主脚本
-├── train_utils.py      # 训练相关工具函数
-├── utils.py            # 通用工具函数
+├── utils.py            # 数据处理、训练、PCA、类别名加载等工具
+├── visualization.py    # 可视化函数（混淆矩阵、伪彩色、分类图、对比图、错误图）
 └── api/                # FastAPI 推理接口
     ├── __init__.py
     └── predictor.py    # 推理类
@@ -73,8 +73,15 @@ probs = predictor.predict(data, return_prob=True)  # 返回概率
 
 ### 可视化文件
 - 位置: `../../visualizations/HybridSN/`
-- 预测结果: `[Dataset]_prediction_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
-- Ground Truth: `[Dataset]_groundtruth.png`
+- **Spectral 渲染**：
+  - 预测结果: `[Dataset]_prediction_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+  - Ground Truth: `[Dataset]_groudtruth_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+- **Matplotlib 可视化**（使用类别名称和颜色映射）：
+  - 伪彩色图: `[Dataset]_pseudocolor_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+  - 分类图: `[Dataset]_classification_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+  - 对比图: `[Dataset]_comparison_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+  - 错误图: `[Dataset]_error_map_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
+  - 混淆矩阵（训练阶段）: `[Dataset]_confusion_pca=[K]_window=[size]_lr=[rate]_epochs=[num].png`
 
 ## 模型架构
 

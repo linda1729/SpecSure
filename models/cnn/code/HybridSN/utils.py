@@ -47,7 +47,7 @@ def resolve_data_path(args):
     if args.data_path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cnn_dir = os.path.dirname(os.path.dirname(script_dir))
-        data_path = os.path.join(cnn_dir, 'data', DATASET_FOLDERS.get(args.dataset, args.dataset))
+        data_path = os.path.join('../../../../', 'data', DATASET_FOLDERS.get(args.dataset, args.dataset))
     else:
         data_path = os.path.abspath(args.data_path)
     if not os.path.isdir(data_path):

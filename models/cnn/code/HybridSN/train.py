@@ -41,7 +41,6 @@ def train(args):
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path)
-    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     
     #加载基本数据以及数据的预处理
     X, y, K, output_units = load_dataset(dataset, data_path, args.pca_components_ip, args.pca_components_other)
@@ -116,12 +115,8 @@ def train(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     report_dir = os.path.join(cnn_dir, 'reports', 'HybridSN')
     os.makedirs(report_dir, exist_ok=True)
-<<<<<<< HEAD
-    report_name = f"{dataset_name}_report_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.txt"
-=======
     suffix = f"pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}"
     report_name = f"{dataset_name}_report_{suffix}.txt"
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     report_path = os.path.join(report_dir, report_name)
     
     with open(report_path, 'w') as f:
@@ -137,11 +132,7 @@ def train(args):
     # 保存混淆矩阵可视化
     cm_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(cm_dir, exist_ok=True)
-<<<<<<< HEAD
-    cm_name = f"{dataset_name}_confusion_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
-=======
     cm_name = f"{dataset_name}_confusion_{suffix}.png"
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     cm_path = os.path.join(cm_dir, cm_name)
     # 尝试加载 CSV 中的人类可读类名映射
     class_name_map = load_class_names(dataset, data_path)
@@ -158,33 +149,14 @@ def train(args):
     # 保存可视化结果
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-<<<<<<< HEAD
-    pred_name = f"{dataset_name}_prediction_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
-    gt_name = f"{dataset_name}_groundtruth.png"
-=======
     pred_name = f"{dataset_name}_prediction_{suffix}.png"
     gt_name = f"{dataset_name}_groundtruth_{suffix}.png"
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     pred_path = os.path.join(viz_dir, pred_name)
     gt_path = os.path.join(viz_dir, gt_name)
 
     spectral.save_rgb(pred_path, outputs.astype(int), colors=spectral.spy_colors)
     spectral.save_rgb(gt_path, y, colors=spectral.spy_colors)
     print(f'Visualizations saved to: {pred_path} and {gt_path}')
-    # 推理混淆矩阵（基于完整图）
-    mask_full = y > 0
-    y_true_full = y[mask_full].ravel()
-    y_pred_full = outputs[mask_full].ravel().astype(int)
-    if y_true_full.size > 0:
-        cm_full = confusion_matrix(y_true_full, y_pred_full)
-        cm_infer_name = f"{dataset_name}_confusion_infer_{suffix}.png"
-        cm_infer_path = os.path.join(viz_dir, cm_infer_name)
-        if class_name_map is not None:
-            cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm_full.shape[0])]
-        else:
-            cm_class_names = [str(i+1) for i in range(cm_full.shape[0])]
-        visualize_confusion_matrix(cm_full, cm_class_names, cm_infer_path, title=f"{dataset_name} Confusion (Inference)")
-        print(f'Inference confusion matrix saved to: {cm_infer_path}')
     # 生成伪彩色、分类图、标注对比图
     try:
         generate_all_visualizations(outputs, y, X, viz_dir, dataset_name, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
@@ -225,12 +197,8 @@ def test(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-<<<<<<< HEAD
-    gt_name = f"{dataset_name}_groundtruth.png"
-=======
     suffix = f"pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}"
     gt_name = f"{dataset_name}_groundtruth_{suffix}.png"
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     gt_path = os.path.join(viz_dir, gt_name)
     
     spectral.save_rgb(args.output_prediction_path, outputs.astype(int), colors=spectral.spy_colors)
@@ -244,25 +212,6 @@ def test(args):
         generate_all_visualizations(outputs, y, X, viz_dir, dataset_name, K, window_size, lr=args.lr, epochs=args.epochs, class_names=class_name_map)
     except Exception as e:
         print(f'Warning: generate_all_visualizations failed during inference: {e}')
-
-    # 计算并保存推理混淆矩阵及其可视化（仅统计有标签区域）
-    mask = y > 0
-    y_true = y[mask].ravel()
-    y_pred = outputs[mask].ravel().astype(int)
-    if y_true.size > 0:
-        cm = confusion_matrix(y_true, y_pred)
-<<<<<<< HEAD
-        cm_name = f"{dataset_name}_confusion_infer_pca={K}_window={window_size}.png"
-=======
-        cm_name = f"{dataset_name}_confusion_infer_{suffix}.png"
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
-        cm_path = os.path.join(viz_dir, cm_name)
-        if class_name_map is not None:
-            cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm.shape[0])]
-        else:
-            cm_class_names = [str(i+1) for i in range(cm.shape[0])]
-        visualize_confusion_matrix(cm, cm_class_names, cm_path, title=f"{dataset_name} Confusion (Inference)")
-        print(f'Inference confusion matrix saved to: {cm_path}')
 
 
 def main():

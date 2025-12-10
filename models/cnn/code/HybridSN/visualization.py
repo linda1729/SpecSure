@@ -134,20 +134,37 @@ def visualize_comparison(pred, gt, out_path, title='Prediction vs Ground Truth',
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
 
+def save_error_map(gt_map,pred_map,out_path,title="Prediction Error Map",class_names=None):
+    """
+    简单错误可视化:
+    - 背景像元 (gt==0): 灰色
+    - 正确像元: 绿色
+    - 错误像元: 红色
+    """
+    gt = np.asarray(gt_map)
+    pred = np.asarray(pred_map)
+    assert gt.shape == pred.shape, "gt_map 与 pred_map 形状必须一致"
 
-<<<<<<< HEAD
-def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, window, lr=None, epochs=None, class_names=None):
-    dataset_name = dataset
-    # 构建稳健的后缀，避免重复与 None 字符串
-    suffix = f"_pca={K}_window={window}"
-    if lr is not None and epochs is not None:
-        suffix += f"_lr={lr}_epochs={epochs}"
+    H, W = gt.shape
+    rgb = np.zeros((H, W, 3), dtype=np.float32)
 
-    os.makedirs(base_path, exist_ok=True)
-    saved_paths = []
+    bg_mask = gt == 0
+    correct_mask = (gt == pred) & (gt > 0)
+    wrong_mask = (gt != pred) & (gt > 0)
 
-    pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor{suffix}.png")
-=======
+    rgb[bg_mask] = np.array([0.8, 0.8, 0.8])
+    rgb[correct_mask] = np.array([0.2, 0.8, 0.2])
+    rgb[wrong_mask] = np.array([0.9, 0.2, 0.2])
+
+    plt.figure(figsize=(10, 8))
+    plt.imshow(rgb)
+    plt.title(title)
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
 def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K, window, lr=None, epochs=None, class_names=None):
     suffix_parts = [f"pca={K}", f"window={window}"]
     if lr is not None:
@@ -156,42 +173,19 @@ def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K
         suffix_parts.append(f"epochs={epochs}")
     suffix = "_".join(suffix_parts)
     pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor_{suffix}.png")
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
     try:
         print(f"[visualization] pseudo_color input shapes: pred={getattr(pred, 'shape', None)}, gt={getattr(gt, 'shape', None)}, X_original={getattr(X_original, 'shape', None)}")
         visualize_pseudo_color(X_original, pc_path, title=f"{dataset_name} Pseudo Color")
-        saved_paths.append(pc_path)
+        #saved_paths.append(pc_path)
     except Exception as e:
         print(f"警告：伪彩色生成失败: {e}")
-<<<<<<< HEAD
-
-    cls_path = os.path.join(base_path, f"{dataset_name}_classification{suffix}.png")
-    try:
-        visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
-        saved_paths.append(cls_path)
-    except Exception as e:
-        print(f"警告：分类图生成失败: {e}")
-
-    cmp_path = os.path.join(base_path, f"{dataset_name}_comparison{suffix}.png")
-    try:
-        visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
-        saved_paths.append(cmp_path)
-    except Exception as e:
-        print(f"警告：对比图生成失败: {e}")
-
-    if saved_paths:
-        print(f"已生成可视化产物：")
-        for p in saved_paths:
-            print(f"  - {p}")
-    else:
-        print("未生成任何可视化产物（全部失败或无可用数据）")
-    return saved_paths
-=======
     cls_path = os.path.join(base_path, f"{dataset_name}_classification_{suffix}.png")
     visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
     cmp_path = os.path.join(base_path, f"{dataset_name}_comparison_{suffix}.png")
     visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
     comprasion_path = os.path.join(base_path, f"{dataset_name}_comprasion_{suffix}.png")
+    error_path = os.path.join(base_path, f"{dataset_name}_error_map_{suffix}.png")
+    save_error_map(gt, pred, error_path, title=f"{dataset_name} Prediction Error Map", class_names=class_names)
     try:
         shutil.copyfile(cmp_path, comprasion_path)
     except Exception:
@@ -200,5 +194,5 @@ def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K
     print(f"  - 伪彩色: {pc_path}")
     print(f"  - 分类图: {cls_path}")
     print(f"  - 对比图: {cmp_path}")
-    return [pc_path, cls_path, cmp_path]
->>>>>>> 897e856b35eb70feb27f1034557416221f8c4f85
+    print(f"  - 错误图: {error_path}")
+    return [pc_path, cls_path, cmp_path, error_path]
