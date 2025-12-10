@@ -1,5 +1,27 @@
 # HybridSN CNN 模型实现日志
 
+## 2025年12月8日 - 模块重构与功能增强
+
+### 最近更新（第二阶段）
+
+#### 1. 代码模块化重构
+- **train_utils.py 拆分**：原单文件分离为两个专业模块：
+  - `utils.py`：数据处理、训练工具、模型保存加载、类别名称加载（~400 行）
+  - `visualization.py`：所有可视化函数（~150 行）
+- **导入重构**：`train.py` 已更新，从 `utils` 和 `visualization` 分别导入对应功能
+- **优势**：职责清晰，易于维护、测试和扩展
+
+#### 2. CSV 类别名称自动加载
+- **新增功能**：`utils.py` 中实现 `load_class_names(dataset, data_path)` 函数
+- **工作流**：自动查找 `models/cnn/data/[Dataset]/[Dataset].CSV`，解析格式 `<class_id>,<class_name>`
+- **集成**：训练/推理自动调用，将 `class_name_map` 传递给所有可视化函数
+- **输出**：混淆矩阵坐标轴、图例自动显示人类可读类别名称（而非数字）
+
+#### 3. 可视化增强
+- **参数扩展**：所有可视化函数接受可选 `class_names` 参数
+- **三类产物**：伪彩色图、分类图（带图例）、对比图（GT vs Pred）
+- **自动名称**：若 CSV 存在，无需手动修改代码，所有图形自动使用中文/英文类别名称
+
 ## 2025年11月28日 - HybridSN PyTorch 完整实现
 
 ### 实现功能
@@ -84,32 +106,69 @@
 4. **可复现性**：固定随机种子（345）确保结果可复现
 5. **模块化设计**：代码按功能分块组织清晰
 
-### 下一步计划
+## 已完成任务清单
 
-#### 1. 可视化 Metrics
-- [ ] 绘制混淆矩阵热力图
+### 第二阶段成果（2025年12月8日）
+- [x] 模块拆分：train_utils.py → utils.py + visualization.py
+- [x] CSV 类别名称加载功能实现
+- [x] 可视化函数参数化（接受 class_names）
+- [x] train.py 导入更新，完整测试（Exit Code: 0）
+- [x] README.md CSV 支持说明
 
-#### 2. 尝试学长多模态模型
-- [ ] 研究学长的多模态融合方法
+### 第一阶段成果（2025年11月28日）
+- [x] 绘制混淆矩阵热力图
+- [x] 完整 HybridSN 模型训练流程
+- [x] 多数据集支持（IP/SA/PU）
+- [x] PCA 降维预处理
+- [x] 模型保存/加载机制
+- [x] 完整评估指标（OA/AA/Kappa）
 
-#### 3. 代码重构与模块化
-- [ ] 将数据处理功能分离到 `data_utils.py`
-- [ ] 将模型定义分离到 `models.py`
-- [ ] 将训练/评估逻辑分离到 `train.py` 和 `eval.py`
-- [ ] 创建 `metrics.py` 存放评估指标计算
-- [ ] 创建 `visualization.py` 存放可视化功能
-- [ ] 创建配置文件系统替代部分命令行参数
+## 当前存在的限制与观察
 
-### 当前存在的问题
+1. **可视化对比差异**：
+   - `spectral.save_rgb`：基于原始 HSI 三个波段的物理 RGB 合成
+   - `visualize_classification`：基于分类结果的语义颜色映射
+   - 两者服务不同目的（图像显示 vs 结果呈现）
 
-1. `eval_epoch` 函数中收集预测结果的代码位置需要修正（当前在循环外）
-2. 代码过长，所有功能都在单文件中，需要模块化
-3. 缺少训练过程的可视化
-4. 没有早停（Early Stopping）机制
+2. **缺失高级功能**：
+   - 错误区域高亮（误分类像素标记）
+   - 真值边界叠加（GT 轮廓在预测图上）
+   - t-SNE 降维可视化
+   - 早停策略（Early Stopping）
 
-### 代码统计
+## 下一步计划
 
-- 总行数：约 400+ 行
-- 主要依赖：PyTorch, scikit-learn, numpy, scipy, spectral, tqdm
-- 支持数据集：3个（IP, SA, PU）
-- 网络层数：7层（3×Conv3D + 1×Conv2D + 3×FC）
+### 优先级列表（按重要性）
+
+1. **【高】错误图绘制** 
+   - 实现 `visualize_errors(pred, gt, class_names)` 函数
+   - 高亮显示误分类像素
+   - 统计各类别误分类率
+
+2. **【高】前端集成**
+   - 在 mockfrontend 展示新的可视化输出
+   - 图片预览、参数调试界面
+   - 与后端 FastAPI 通信
+
+3. **【中】推理 API 接口**
+   - `/api/predict` - 上传 HSI 文件并返回分类结果
+   - 集成到 FastAPI 后端
+
+4. **【中】文档更新**
+   - 更新 STRUCTURE.md 反映新模块结构
+   - 补充 CSV 格式说明
+
+5. **【低】多模态融合**（未来方向）
+
+### 模块代码统计（第二阶段）
+
+| 模块 | 行数 | 职责 | 主要函数 |
+|------|------|------|---------|
+| utils.py | ~400 | 数据处理、训练、PCA、类别加载 | load_data, apply_pca, train_epoch, load_class_names |
+| visualization.py | ~150 | 所有可视化产物 | visualize_classification, generate_all_visualizations |
+| train.py | ~270 | 主训练/推理脚本 | main, train, test 函数，argparse 参数解析 |
+| **总计** | **820+** | **完整端到端流程** | **7 层 HybridSN + 多种评估指标** |
+
+**依赖库**：PyTorch, scikit-learn, numpy, scipy, spectral, tqdm, matplotlib, joblib
+
+**数据集支持**：3 个（Indian Pines, Salinas, PaviaU）
