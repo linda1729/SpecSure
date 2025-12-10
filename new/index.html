@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SpecSure | 澜瞳 - Hyperspectral Intelligence</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+
+    <!-- Tailwind CDN is kept for simplicity in this specific setup, 
+         though typically npm install -D tailwindcss is preferred for production. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['var(--font-sans)', 'Inter', 'sans-serif'],
+              code: ['"Space Grotesk"', 'monospace'],
+              display: ['var(--font-display)', '"Google Sans"', 'sans-serif'],
+              serif: ['"Playfair Display"', 'serif'],
+              symbol: ['"Material Symbols Outlined"', 'sans-serif'],
+            },
+            colors: {
+              'surface': 'rgb(var(--surface) / <alpha-value>)',
+              'on-surface': 'rgb(var(--on-surface) / <alpha-value>)',
+              'on-surface-variant': 'rgb(var(--on-surface-variant) / <alpha-value>)',
+              'surface-container': 'rgb(var(--surface-container) / <alpha-value>)',
+              'surface-container-high': 'rgb(var(--surface-container-high) / <alpha-value>)',
+              'primary': 'rgb(var(--primary) / <alpha-value>)',
+              'grey-900': '#2F3034',
+              'grey-800': '#45474D',
+              'grey-100': '#E1E6EC',
+            },
+            fontSize: {
+              'landing': ['131px', { lineHeight: '110.04px', letterSpacing: '-2.62px' }],
+              'landing-lg': ['105px', { lineHeight: '92px', letterSpacing: '-2px' }],
+              'landing-md': ['68px', { lineHeight: '58px', letterSpacing: '-1.35px' }],
+              '9xl': ['148px', { lineHeight: '145px', letterSpacing: '-2.96px' }],
+              '8xl': ['124px', { lineHeight: '121px', letterSpacing: '-2.48px' }],
+              '7xl': ['98px', { lineHeight: '82px', letterSpacing: '-1.8px' }],
+              '6xl': ['72px', { lineHeight: '72px', letterSpacing: '-1.44px' }],
+              '5xl': ['54px', { lineHeight: '56px', letterSpacing: '-0.95px' }],
+            },
+            borderRadius: {
+              '4xl': '36px',
+              '5xl': '48px',
+            },
+            transitionTimingFunction: {
+              'ease-out-expo': 'cubic-bezier(0.19, 1, 0.22, 1)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      :root {
+        /* Default / Modern Theme (Google Blue / Clean White) */
+        --surface: 255 255 255;
+        --on-surface: 18 19 23;
+        --on-surface-variant: 69 71 77;
+        --surface-container: 248 249 252;
+        --surface-container-high: 239 242 247;
+        --primary: 26 115 232; 
+        --font-sans: 'Google Sans', 'Inter', sans-serif;
+        --font-display: 'Google Sans', 'Inter', sans-serif;
+      }
+
+      [data-theme='academic'] {
+        /* Academic Luxury Theme (Cream / Nobel Gold / Stone Ink) */
+        --surface: 249 248 244; /* #F9F8F4 Cream Base */
+        --on-surface: 28 25 23; /* #1C1917 Stone 900 (Ink) */
+        --on-surface-variant: 87 83 78; /* #57534E Stone 600 */
+        --surface-container: 240 238 233; /* #F0EEE9 Darker cream */
+        --surface-container-high: 231 229 224; /* #E7E5E0 */
+        --primary: 197 160 89; /* #C5A059 Nobel Gold */
+        --font-sans: 'Inter', sans-serif;
+        --font-display: 'Playfair Display', serif; /* Serif for headings */
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background-color: rgb(var(--surface));
+        color: rgb(var(--on-surface));
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+        transition: background-color 0.8s ease, color 0.8s ease;
+      }
+
+      h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-display);
+      }
+
+      /* Hide scrollbar for cleaner look like reference */
+      ::-webkit-scrollbar {
+        width: 0px;
+        background: transparent;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "framer-motion": "https://aistudiocdn.com/framer-motion@^12.23.25",
+    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.2",
+    "@react-three/drei": "https://aistudiocdn.com/@react-three/drei@^10.7.7",
+    "three": "https://aistudiocdn.com/three@^0.181.2"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <!-- Cleaned up: Removed importmap, pointing directly to local index.tsx -->
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
