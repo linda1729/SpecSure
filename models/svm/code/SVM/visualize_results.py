@@ -1,355 +1,430 @@
-import os
-import shutil
-from pathlib import Path
-from typing import Optional, Sequence
+from __future__ import annotations
 
-import numpy as np
+from pathlib import Path
+from typing import Dict, List, Mapping, Optional, Sequence
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
+import numpy as np
 from matplotlib.patches import Patch
 
 
-def _ensure_dir(path: os.PathLike) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+def _class_names_for_legend(
+    class_names: Optional[Mapping[int, str] | Sequence[str]],
+    num_classes: int,
+) -> Dict[int, str]:
+    """
+    将各种形式的类别名统一成 {类别编号: 名称}。
+    支持:
+    - dict: {1: 'xxx', 2: 'yyy', ...}
+    - list/tuple: ['xxx', 'yyy', ...] (默认从 1 开始)
+    - None: 退化为数字字符串
+    """
+    if class_names is None:
+        return {cls: str(cls) for cls in range(1, num_classes + 1)}
+
+    if isinstance(class_names, Mapping):
+        raw = {int(k): str(v) for k, v in class_names.items()}
+        return {cls: raw.get(cls, str(cls)) for cls in range(1, num_classes + 1)}
+
+    # list / tuple
+    raw = {i: str(name) for i, name in enumerate(class_names, start=1)}
+    return {cls: raw.get(cls, str(cls)) for cls in range(1, num_classes + 1)}
 
 
-def _normalize_band(band: np.ndarray) -> np.ndarray:
-    band = band.astype(np.float32)
-    band = band - band.min()
-    max_v = band.max()
-    if max_v > 0:
-        band = band / max_v
-    return band
+# =========================
+# 混淆矩阵
+# =========================
 
-
-# ==================== 基础可视化：标签图 & 错误图 ====================
-
-def save_label_map(
-    label_map: np.ndarray,
-    out_path: os.PathLike,
-    title: str = "",
+def visualize_confusion_matrix(
+    confusion: np.ndarray,
+    class_names: Sequence[str],
+    out_path: Path | str,
+    title: Optional[str] = None,
 ) -> None:
     """
-    保存标签图（既可以是 Groundtruth，也可以是 Prediction）。
-
-    label_map: (H, W) 的整型数组，0 代表背景。
+    绘制并保存混淆矩阵。
     """
-    out_path = _ensure_dir(out_path)
-    label_map = np.asarray(label_map, dtype=np.int32)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    n_classes = int(label_map.max())
-    if n_classes <= 0:
-        n_classes = 1
-
-    # 使用 tab20 生成调色板，强制 0 号为黑色
-    base_cmap = plt.get_cmap("tab20", n_classes + 1)
-    colors = base_cmap(np.arange(n_classes + 1))
-    colors[0] = np.array([0.0, 0.0, 0.0, 1.0])  # 背景设为黑色
-    cmap = ListedColormap(colors)
-
-    plt.figure(figsize=(6, 5))
-    plt.imshow(label_map, cmap=cmap, interpolation="nearest")
-    plt.axis("off")
+    plt.figure(figsize=(8, 6))
+    plt.imshow(confusion, interpolation="nearest", cmap=plt.cm.Blues)
     if title:
         plt.title(title)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0)
-    plt.close()
+    plt.colorbar()
 
-
-def save_error_map(
-    gt_map: np.ndarray,
-    pred_map: np.ndarray,
-    out_path: os.PathLike,
-) -> None:
-    """
-    可视化正确 / 错误像元：
-    - 背景（GT=0）：白色
-    - 预测正确：绿色
-    - 预测错误：红色
-    """
-    out_path = _ensure_dir(out_path)
-    gt_map = np.asarray(gt_map, dtype=np.int32)
-    pred_map = np.asarray(pred_map, dtype=np.int32)
-
-    assert gt_map.shape == pred_map.shape, "gt_map 和 pred_map 形状必须一致"
-
-    background = gt_map == 0
-    correct = (gt_map == pred_map) & (~background)
-    wrong = (gt_map != pred_map) & (~background)
-
-    h, w = gt_map.shape
-    rgb = np.ones((h, w, 3), dtype=np.float32)  # 默认白色背景
-
-    rgb[correct] = np.array([0.0, 0.7, 0.0])  # 绿色
-    rgb[wrong] = np.array([1.0, 0.0, 0.0])    # 红色
-
-    plt.figure(figsize=(6, 5))
-    plt.imshow(rgb)
-    plt.axis("off")
-    plt.title("Correct (green) vs Error (red)")
-    legend_handles = [
-        Patch(color="white", label="Background"),
-        Patch(color="green", label="Correct"),
-        Patch(color="red", label="Error"),
-    ]
-    plt.legend(
-        handles=legend_handles,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.02),
-        ncol=3,
-        frameon=False,
-    )
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.05)
-    plt.close()
-
-
-def save_confusion_matrix_figure(
-    cm: np.ndarray,
-    out_path: os.PathLike,
-    class_names: Optional[Sequence[str]] = None,
-) -> None:
-    """
-    保存混淆矩阵图（用于 test / inference confusion）。
-    """
-    out_path = _ensure_dir(out_path)
-    cm = np.asarray(cm, dtype=np.int64)
-    num_classes = cm.shape[0]
-
-    if class_names is None or len(class_names) != num_classes:
-        class_names = [str(i) for i in range(num_classes)]
-
-    plt.figure(figsize=(6, 5))
-    im = plt.imshow(cm, interpolation="nearest", cmap="Blues")
-    plt.colorbar(im, fraction=0.046, pad=0.04)
-
-    tick_marks = np.arange(num_classes)
+    tick_marks = np.arange(len(class_names))
     plt.xticks(tick_marks, class_names, rotation=45, ha="right")
     plt.yticks(tick_marks, class_names)
 
-    thresh = cm.max() / 2.0 if cm.max() > 0 else 0.5
-    for i in range(num_classes):
-        for j in range(num_classes):
-            value = cm[i, j]
+    thresh = confusion.max() / 2.0 if confusion.size else 0.0
+    for i in range(confusion.shape[0]):
+        for j in range(confusion.shape[1]):
+            val = confusion[i, j]
             plt.text(
                 j,
                 i,
-                str(value),
+                format(int(val), "d"),
                 horizontalalignment="center",
-                color="white" if value > thresh else "black",
-                fontsize=8,
+                color="white" if val > thresh else "black",
             )
 
     plt.ylabel("True label")
     plt.xlabel("Predicted label")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.05)
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
 
-# ==================== 伪彩色 / 分类 / 对比（对齐 CNN） ====================
-
-def _select_rgb_bands(num_bands: int, dataset_name: str) -> tuple[int, int, int]:
+def save_confusion_matrix_figure(
+    cm: np.ndarray,
+    out_path: Path | str,
+    class_names: Sequence[str],
+) -> None:
     """
-    根据数据集名称挑选一组常用 RGB 波段索引，如果波段数不够就退而求其次。
+    兼容 train.py 的封装：只负责把 cm + 类别名画出来。
     """
-    name = dataset_name.lower()
-    # 下面这些索引基本仿照 CNN 那边的写法，稍有出入问题也不大
-    if "indian" in name:
-        candidates = (29, 19, 9)
-    elif "pavia" in name:
-        candidates = (55, 40, 20)
-    elif "salinas" in name:
-        candidates = (50, 30, 10)
-    else:
-        candidates = (0, 1, 2)
+    visualize_confusion_matrix(
+        confusion=cm,
+        class_names=class_names,
+        out_path=out_path,
+        title=None,
+    )
 
-    r, g, b = candidates
-    r = min(max(r, 0), num_bands - 1)
-    g = min(max(g, 0), num_bands - 1)
-    b = min(max(b, 0), num_bands - 1)
-    return int(r), int(g), int(b)
 
+# =========================
+# 伪彩色图（高光谱三波段）
+# =========================
 
 def visualize_pseudo_color(
-    X: np.ndarray,
-    out_path: os.PathLike,
-    dataset_name: str = "",
+    image_3d: np.ndarray,
+    out_path: Path | str,
+    bands: Sequence[int] = (29, 19, 9),
+    title: str = "Pseudo Color Image",
 ) -> None:
     """
-    伪彩色图：从 HSI 中挑三条波段作为 R/G/B。
+    从高光谱数据中抽取 3 个波段，生成伪彩色图。
+
+    这里 **固定假设输入是 (H, W, C)**，和 Salinas / IndianPines / PaviaU 一致，
+    这样伪彩色图就是 CNN 那种“田地照片”的效果。
     """
-    out_path = _ensure_dir(out_path)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    X = np.asarray(X, dtype=np.float32)
-    if X.ndim != 3:
-        raise ValueError("X 必须是 (H, W, B) 的三维数组")
+    arr = np.asarray(image_3d)
+    if arr.ndim != 3:
+        raise ValueError(f"期望 3D HSI 数据 (H, W, C)，但拿到的形状是 {arr.shape}")
 
-    h, w, b = X.shape
-    r_idx, g_idx, b_idx = _select_rgb_bands(b, dataset_name)
+    H, W, C = arr.shape
 
-    R = _normalize_band(X[:, :, r_idx])
-    G = _normalize_band(X[:, :, g_idx])
-    B = _normalize_band(X[:, :, b_idx])
-    rgb = np.stack([R, G, B], axis=-1)
+    # 确保波段索引不越界
+    bands = [min(int(b), C - 1) for b in bands]
 
-    plt.figure(figsize=(6, 5))
+    # 取出三个波段，组成 RGB
+    rgb = np.stack(
+        [arr[:, :, bands[0]], arr[:, :, bands[1]], arr[:, :, bands[2]]],
+        axis=-1,
+    ).astype(np.float32)
+
+    # 每个通道做 min-max 归一化到 [0,1]
+    for i in range(3):
+        ch = rgb[:, :, i]
+        vmin, vmax = ch.min(), ch.max()
+        if vmax > vmin:
+            rgb[:, :, i] = (ch - vmin) / (vmax - vmin)
+        else:
+            rgb[:, :, i] = 0.0
+
+    plt.figure(figsize=(6, 8))
     plt.imshow(rgb)
+    plt.title(title)
     plt.axis("off")
-    if dataset_name:
-        plt.title(f"{dataset_name} pseudo color")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0)
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
 
-def visualize_classification(
-    pred_map: np.ndarray,
-    out_path: os.PathLike,
-    dataset_name: str = "",
-    class_names: Optional[Sequence[str]] = None,
+# =========================
+# 分类图 & 对比图
+# =========================
+
+def _label_map_to_rgb(
+    label_map: np.ndarray,
+    num_classes: Optional[int] = None,
+    class_names: Optional[Mapping[int, str] | Sequence[str]] = None,
+):
+    label_map = np.asarray(label_map)
+    if num_classes is None:
+        num_classes = int(label_map.max())
+    if num_classes <= 0:
+        raise ValueError("label_map 中没有有效类别（最大值 <= 0）")
+
+    if num_classes <= 20:
+        cmap = plt.cm.get_cmap("tab20", num_classes)
+    else:
+        cmap = plt.cm.get_cmap("hsv", num_classes)
+
+    legend_names = _class_names_for_legend(class_names, num_classes)
+
+    H, W = label_map.shape
+    rgb = np.ones((H, W, 3), dtype=np.float32)
+    for cls in range(1, num_classes + 1):
+        mask = label_map == cls
+        color = cmap(cls - 1)[:3]
+        rgb[mask] = color
+
+    return rgb, legend_names, cmap
+
+
+def save_label_map(
+    label_map: np.ndarray,
+    out_path: Path | str,
+    title: Optional[str] = None,
+    class_names: Optional[Mapping[int, str] | Sequence[str]] = None,
 ) -> None:
     """
-    分类图：根据预测标签绘制（背景 0）。
+    保存带图例的标签图（可用于 Ground Truth / Prediction）。
     """
-    out_path = _ensure_dir(out_path)
+    label_map = np.asarray(label_map)
+    num_classes = int(label_map.max())
+    rgb, legend_names, cmap = _label_map_to_rgb(
+        label_map, num_classes=num_classes, class_names=class_names
+    )
 
-    pred_map = np.asarray(pred_map, dtype=np.int32)
-    n_classes = int(pred_map.max())
-    if n_classes <= 0:
-        n_classes = 1
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    base_cmap = plt.get_cmap("tab20", n_classes + 1)
-    colors = base_cmap(np.arange(n_classes + 1))
-    colors[0] = np.array([0.0, 0.0, 0.0, 1.0])  # 背景黑色
-    cmap = ListedColormap(colors)
-
-    plt.figure(figsize=(6, 5))
-    im = plt.imshow(pred_map, cmap=cmap, interpolation="nearest")
-    plt.axis("off")
-    if dataset_name:
-        plt.title(f"{dataset_name} classification map")
-
-    # 可选图例
-    if class_names is not None and len(class_names) == n_classes:
-        handles = []
-        for i in range(1, n_classes + 1):
-            handles.append(Patch(color=colors[i], label=class_names[i - 1]))
-        plt.legend(
-            handles=handles,
-            loc="lower center",
-            bbox_to_anchor=(0.5, -0.02),
-            ncol=min(4, len(handles)),
-            frameon=False,
-        )
-
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.05)
-    plt.close()
-
-
-def visualize_comparison(
-    gt_map: np.ndarray,
-    pred_map: np.ndarray,
-    out_path: os.PathLike,
-    dataset_name: str = "",
-) -> None:
-    """
-    对比图：和 save_error_map 类似，展示正确 / 错误像元。
-    """
-    out_path = _ensure_dir(out_path)
-
-    gt_map = np.asarray(gt_map, dtype=np.int32)
-    pred_map = np.asarray(pred_map, dtype=np.int32)
-
-    background = gt_map == 0
-    correct = (gt_map == pred_map) & (~background)
-    wrong = (gt_map != pred_map) & (~background)
-
-    h, w = gt_map.shape
-    rgb = np.ones((h, w, 3), dtype=np.float32)  # 白色背景
-    rgb[correct] = np.array([0.0, 0.7, 0.0])   # 绿色
-    rgb[wrong] = np.array([1.0, 0.0, 0.0])     # 红色
-
-    plt.figure(figsize=(6, 5))
+    plt.figure(figsize=(10, 8))
     plt.imshow(rgb)
+    if title:
+        plt.title(title)
     plt.axis("off")
-    if dataset_name:
-        plt.title(f"{dataset_name} comparison (correct vs error)")
 
-    legend_handles = [
-        Patch(color="white", label="Background"),
-        Patch(color="green", label="Correct"),
-        Patch(color="red", label="Error"),
-    ]
+    handles: List[Patch] = []
+    for cls in range(1, num_classes + 1):
+        label = legend_names.get(cls, str(cls))
+        handles.append(Patch(facecolor=cmap(cls - 1)[:3], label=label))
     plt.legend(
-        handles=legend_handles,
+        handles=handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.02),
-        ncol=3,
+        bbox_to_anchor=(0.5, -0.05),
+        ncol=min(10, num_classes),
         frameon=False,
     )
 
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.05)
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
 
-def generate_all_visualizations(
-    X: np.ndarray,
-    gt_map: np.ndarray,
-    pred_map: np.ndarray,
-    viz_dir: os.PathLike,
-    dataset_name: str,
-    K: int,
-    window_size: int,
-    lr: float,
-    epochs: int,
-    class_names: Optional[Sequence[str]] = None,
+def visualize_classification(
+    prediction: np.ndarray,
+    gt: np.ndarray,
+    out_path: Path | str,
+    title: str = "Classification Result",
+    class_names: Optional[Mapping[int, str] | Sequence[str]] = None,
 ) -> None:
     """
-    统一生成 3 张额外图：
-    - 伪彩色（pseudo_color）
-    - 分类图（classification）
-    - 对比图（comparison + comprasion）
-
-    命名格式和 CNN HybridSN 对齐：
-    <dataset>_pseudo_color_pca=K_window=..._lr=..._epochs=...
-    <dataset>_classification_pca=...
-    <dataset>_comparison_pca=...
-    <dataset>_comprasion_pca=...   # 保留拼写错误，和 CNN 一致
+    仅画预测分类结果 + 图例。
     """
-    viz_dir = Path(viz_dir)
-    viz_dir.mkdir(parents=True, exist_ok=True)
+    prediction = np.asarray(prediction)
+    num_classes = int(prediction.max())
+    if num_classes <= 0:
+        raise ValueError("prediction 中没有有效类别（最大值 <= 0）")
 
-    suffix = f"pca={K}_window={window_size}_lr={lr}_epochs={epochs}"
+    rgb, legend_names, cmap = _label_map_to_rgb(
+        prediction, num_classes=num_classes, class_names=class_names
+    )
 
-    pseudo_path = viz_dir / f"{dataset_name}_pseudo_color_{suffix}.png"
-    cls_path = viz_dir / f"{dataset_name}_classification_{suffix}.png"
-    cmp_path = viz_dir / f"{dataset_name}_comparison_{suffix}.png"
-    cmp2_path = viz_dir / f"{dataset_name}_comprasion_{suffix}.png"  # CNN 的拼写
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 伪彩色
-    if not pseudo_path.exists():
-        visualize_pseudo_color(X, pseudo_path, dataset_name=dataset_name)
+    plt.figure(figsize=(10, 8))
+    plt.imshow(rgb)
+    plt.title(title)
+    plt.axis("off")
 
-    # 分类图
-    if not cls_path.exists():
-        visualize_classification(
-            pred_map, cls_path, dataset_name=dataset_name, class_names=class_names
-        )
+    handles: List[Patch] = []
+    for cls in range(1, num_classes + 1):
+        label = legend_names.get(cls, str(cls))
+        handles.append(Patch(facecolor=cmap(cls - 1)[:3], label=label))
+    plt.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.05),
+        ncol=min(10, num_classes),
+        frameon=False,
+    )
 
-    # 对比图
-    if not cmp_path.exists():
-        visualize_comparison(gt_map, pred_map, cmp_path, dataset_name=dataset_name)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
 
-    # 复制一份“comprasion”图，和 CNN 保持 1:1 一致
-    try:
-        if not cmp2_path.exists():
-            shutil.copyfile(cmp_path, cmp2_path)
-    except Exception:
-        # 防御性：即便复制失败，也不要影响主流程
-        pass
+
+def visualize_comparison(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    out_path: Path | str,
+    title: str = "Prediction vs Ground Truth",
+    class_names: Optional[Mapping[int, str] | Sequence[str]] = None,
+) -> None:
+    """
+    左边 Prediction，右边 Ground Truth，共享一个图例。
+    """
+    pred = np.asarray(pred)
+    gt = np.asarray(gt)
+    num_classes = int(max(pred.max(), gt.max()))
+    if num_classes <= 0:
+        raise ValueError("pred/gt 中没有有效类别（最大值 <= 0）")
+
+    pred_rgb, legend_names, cmap = _label_map_to_rgb(
+        pred, num_classes=num_classes, class_names=class_names
+    )
+    gt_rgb, _, _ = _label_map_to_rgb(
+        gt, num_classes=num_classes, class_names=class_names
+    )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+    ax1.imshow(pred_rgb)
+    ax1.set_title("Prediction", fontsize=12)
+    ax1.axis("off")
+
+    ax2.imshow(gt_rgb)
+    ax2.set_title("Ground Truth", fontsize=12)
+    ax2.axis("off")
+
+    handles: List[Patch] = []
+    for cls in range(1, num_classes + 1):
+        label = legend_names.get(cls, str(cls))
+        handles.append(Patch(facecolor=cmap(cls - 1)[:3], label=label))
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.03),
+        ncol=min(10, num_classes),
+        frameon=False,
+    )
+
+    fig.suptitle(title, fontsize=14)
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
+# =========================
+# （可选）错误图函数：目前不在 train.py 中使用
+# =========================
+
+def save_error_map(
+    gt_map: np.ndarray,
+    pred_map: np.ndarray,
+    out_path: Path | str,
+    title: str = "Prediction Error Map",
+) -> None:
+    """
+    简单错误可视化:
+    - 背景像元 (gt==0): 灰色
+    - 正确像元: 绿色
+    - 错误像元: 红色
+    （当前 SVM 训练脚本不再调用此函数，只保留以备不时之需）
+    """
+    gt = np.asarray(gt_map)
+    pred = np.asarray(pred_map)
+    assert gt.shape == pred.shape, "gt_map 与 pred_map 形状必须一致"
+
+    H, W = gt.shape
+    rgb = np.zeros((H, W, 3), dtype=np.float32)
+
+    bg_mask = gt == 0
+    correct_mask = (gt == pred) & (gt > 0)
+    wrong_mask = (gt != pred) & (gt > 0)
+
+    rgb[bg_mask] = np.array([0.8, 0.8, 0.8])
+    rgb[correct_mask] = np.array([0.2, 0.8, 0.2])
+    rgb[wrong_mask] = np.array([0.9, 0.2, 0.2])
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(10, 8))
+    plt.imshow(rgb)
+    plt.title(title)
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
+# =========================
+# 一键生成伪彩色 / 分类 / 对比 三张图
+# =========================
+
+def generate_all_visualizations(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    X_original: np.ndarray,
+    base_path: Path | str,
+    dataset_name: str,
+    K: int,
+    window: int,
+    lr: Optional[float] = None,
+    epochs: Optional[int] = None,
+    class_names: Optional[Mapping[int, str] | Sequence[str]] = None,
+) -> None:
+    """
+    生成 3 张与 CNN 风格一致的图:
+    - {dataset_name}_pseudocolor_pca=.._window=.._lr=.._epochs=..png
+    - {dataset_name}_classification_...
+    - {dataset_name}_comparison_...
+
+    命名中 lr / epochs 只保留一遍。
+    dataset_name 为 IP / SA / PU。
+    """
+    base_path = Path(base_path)
+    base_path.mkdir(parents=True, exist_ok=True)
+
+    # suffix: pca=15_window=25_lr=0.001_epochs=100
+    suffix_core = f"pca={K}_window={window}"
+    if lr is not None and epochs is not None:
+        suffix = f"{suffix_core}_lr={lr}_epochs={epochs}"
+    else:
+        suffix = suffix_core
+
+    # 1) 伪彩色
+    pc_path = base_path / f"{dataset_name}_pseudocolor_{suffix}.png"
+    visualize_pseudo_color(
+        X_original,
+        pc_path,
+        title=f"{dataset_name} Pseudo Color",
+    )
+
+    # 2) 分类结果
+    cls_path = base_path / f"{dataset_name}_classification_{suffix}.png"
+    visualize_classification(
+        prediction=pred,
+        gt=gt,
+        out_path=cls_path,
+        title=f"{dataset_name} Classification",
+        class_names=class_names,
+    )
+
+    # 3) 预测 vs GT 对比
+    cmp_path = base_path / f"{dataset_name}_comparison_{suffix}.png"
+    visualize_comparison(
+        pred=pred,
+        gt=gt,
+        out_path=cmp_path,
+        title=f"{dataset_name} Prediction vs GT",
+        class_names=class_names,
+    )
+
+    print("已生成 CNN 风格可视化：")
+    print(f"  - 伪彩色: {pc_path}")
+    print(f"  - 分类图: {cls_path}")
+    print(f"  - 对比图: {cmp_path}")

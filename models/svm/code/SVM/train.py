@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import spectral
 import argparse
+import csv
 from pathlib import Path
 from typing import Dict
 
@@ -16,8 +18,8 @@ from prepare_data import load_hsi_gt, create_labeled_samples
 from visualize_results import (
     save_confusion_matrix_figure,
     save_label_map,
-    save_error_map,
     generate_all_visualizations,
+    visualize_confusion_matrix,  # 当前未使用，保留不影响
 )
 
 # 和 CNN 保持一致的数据集文件命名
@@ -32,6 +34,41 @@ REQUIRED_FILES = {
     "SA": ("Salinas_hsi.mat", "Salinas_gt.mat"),
     "PU": ("PaviaU_hsi.mat", "PaviaU_gt.mat"),
 }
+
+
+def load_class_names(dataset_code: str, data_root: Path) -> Dict[int, str]:
+    """
+    仿照 CNN utils.load_class_names:
+    从 data_root/<DatasetFolder>/<DatasetFolder>.CSV 读取类别名称。
+    CSV 第一列是类别 id，第二列是类别名。
+    """
+    dataset_folder = DATASET_FOLDERS.get(dataset_code, dataset_code)
+    csv_path = data_root / dataset_folder / f"{dataset_folder}.CSV"
+    if not csv_path.is_file():
+        print(f"[INFO] 未找到 {csv_path.name}，图例将使用数字标签")
+        return {}
+
+    names: Dict[int, str] = {}
+    try:
+        with csv_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                try:
+                    cid = int(parts[0])
+                except Exception:
+                    # 跳过表头或非法行
+                    continue
+                name = parts[1] if len(parts) > 1 and parts[1] else str(cid)
+                names[cid] = name
+    except Exception as e:
+        print(f"[WARN] 读取 {csv_path} 失败: {e}")
+        return {}
+
+    print(f"[INFO] 从 {csv_path} 读取到 {len(names)} 个类别名称")
+    return names
 
 
 # --------------------------
@@ -64,7 +101,7 @@ def _resolve_base_paths(args: argparse.Namespace) -> Dict[str, Path]:
     if args.data_path is not None:
         data_root = Path(args.data_path)
     else:
-        # ✅ 改为使用 SVM 自己的 data 目录
+        # ✅ 默认使用 SVM 自己的 data 目录
         data_root = svm_root / "data"
 
     trained_root = svm_root / "trained_models" / "SVM"
@@ -154,16 +191,8 @@ def _build_default_confusion_fig_name(dataset_folder: str, K: int, args: argpars
     return f"{dataset_folder}_confusion_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
 
-def _build_infer_confusion_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
-    return f"{dataset_folder}_confusion_infer_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
-
-
 def _build_prediction_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
     return f"{dataset_folder}_prediction_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
-
-
-def _build_error_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
-    return f"{dataset_folder}_errors_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
 
 # --------------------------
@@ -316,13 +345,21 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     print(f"[SAVE] 已保存评估报告到: {report_path}")
 
     # -------------------
-    # 保存测试集混淆矩阵图
+    # 类别名称（来自 CSV），用于可视化图例
+    # -------------------
+    class_name_map = load_class_names(dataset_code, data_root)
+    num_classes = cm.shape[0]
+    if class_name_map:
+        class_names = [class_name_map.get(i, str(i)) for i in range(1, num_classes + 1)]
+    else:
+        class_names = [str(i) for i in range(1, num_classes + 1)]
+
+    # -------------------
+    # 保存测试集混淆矩阵图（1 张）
     # -------------------
     vis_root = paths["vis_root"]
     confusion_fig_name = _build_default_confusion_fig_name(dataset_folder, K, args)
     confusion_fig_path = vis_root / confusion_fig_name
-    num_classes = cm.shape[0]
-    class_names = [str(i) for i in range(1, num_classes + 1)]
     save_confusion_matrix_figure(
         cm,
         confusion_fig_path,
@@ -330,7 +367,7 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     )
 
     # -------------------
-    # 整图预测 & 可视化（Ground Truth / Prediction / Error）
+    # 整图预测 & 可视化（Ground Truth / Prediction）
     # -------------------
     X_full = hsi_cube.reshape(-1, C)
     X_full_scaled = scaler.transform(X_full)
@@ -341,47 +378,42 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
 
     y_full_pred = classifier.predict(X_full_feat)
     pred_map = y_full_pred.reshape(H, W)
-    # 背景像元保持 0
     pred_map = pred_map.copy()
     pred_map[gt_map == 0] = 0
 
-    # 整图混淆矩阵（仅统计 GT>0 的像元）
-    mask_full = gt_map.ravel() > 0
-    y_true_full = gt_map.ravel()[mask_full]
-    y_pred_full = pred_map.ravel()[mask_full]
-    cm_full = confusion_matrix(y_true_full, y_pred_full, labels=np.arange(1, num_classes + 1))
-
-    infer_conf_name = _build_infer_confusion_fig_name(dataset_folder, K, args)
-    infer_conf_path = vis_root / infer_conf_name
-    save_confusion_matrix_figure(
-        cm_full,
-        infer_conf_path,
-        class_names=class_names,
-    )
-
-    # Ground Truth 图
+    # Ground Truth / Prediction 图（和 CNN 一样用 spectral.save_rgb）
     gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
-    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth")
-
-    # Prediction 图
     pred_fig_name = _build_prediction_fig_name(dataset_folder, K, args)
     pred_fig_path = vis_root / pred_fig_name
-    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction")
 
-    # Error 图
-    error_fig_name = _build_error_fig_name(dataset_folder, K, args)
-    error_fig_path = vis_root / error_fig_name
-    save_error_map(gt_map, pred_map, error_fig_path)
+    try:
+        spectral.save_rgb(
+            str(gt_fig_path),
+            gt_map.astype(int),
+            colors=spectral.spy_colors,
+        )
+        spectral.save_rgb(
+            str(pred_fig_path),
+            pred_map.astype(int),
+            colors=spectral.spy_colors,
+        )
+        print(f"[SAVE] 使用 spectral.save_rgb 保存 GT / Prediction 到 {vis_root}")
+    except Exception as e:
+        print(f"[WARN] spectral.save_rgb 失败，回退为 matplotlib 可视化: {e}")
+        save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth", class_names=class_names)
+        save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", class_names=class_names)
 
-    # 伪彩色 / 分类 / 对比（7 张图里剩下的 3 种）
+    # -------------------
+    # 伪彩色 / 分类 / 对比（SA_* 三张，与 CNN 对齐）
+    # -------------------
     generate_all_visualizations(
-        X=hsi_cube,
-        gt_map=gt_map,
-        pred_map=pred_map,
-        viz_dir=vis_root,
-        dataset_name=dataset_folder,
+        pred=pred_map,
+        gt=gt_map,
+        X_original=hsi_cube,
+        base_path=vis_root,
+        dataset_name=dataset_code,  # IP / SA / PU
         K=K,
-        window_size=args.window_size,
+        window=args.window_size,
         lr=args.lr,
         epochs=args.epochs,
         class_names=class_names,
@@ -472,6 +504,16 @@ def inference_only(args: argparse.Namespace) -> None:
     print(cls_report)
     print(cm)
 
+    # -------------------
+    # 类别名称（来自 CSV），用于可视化图例
+    # -------------------
+    class_name_map = load_class_names(dataset_code, data_root)
+    num_classes = cm.shape[0]
+    if class_name_map:
+        class_names = [class_name_map.get(i, str(i)) for i in range(1, num_classes + 1)]
+    else:
+        class_names = [str(i) for i in range(1, num_classes + 1)]
+
     # 保存推理报告
     reports_root = paths["reports_root"]
     report_name = _build_default_report_name(dataset_folder, K, args)
@@ -494,8 +536,6 @@ def inference_only(args: argparse.Namespace) -> None:
     vis_root = paths["vis_root"]
     confusion_fig_name = _build_default_confusion_fig_name(dataset_folder, K, args)
     confusion_fig_path = vis_root / confusion_fig_name
-    num_classes = cm.shape[0]
-    class_names = [str(i) for i in range(1, num_classes + 1)]
     save_confusion_matrix_figure(
         cm,
         confusion_fig_path,
@@ -518,23 +558,8 @@ def inference_only(args: argparse.Namespace) -> None:
     pred_map = pred_map.copy()
     pred_map[gt_map == 0] = 0
 
-    # 整图混淆矩阵
-    mask_full = gt_map.ravel() > 0
-    y_true_full = gt_map.ravel()[mask_full]
-    y_pred_full = pred_map.ravel()[mask_full]
-    cm_full = confusion_matrix(y_true_full, y_pred_full, labels=np.arange(1, num_classes + 1))
-
-    infer_conf_name = _build_infer_confusion_fig_name(dataset_folder, K, args)
-    infer_conf_path = vis_root / infer_conf_name
-    save_confusion_matrix_figure(
-        cm_full,
-        infer_conf_path,
-        class_names=class_names,
-    )
-
     # Ground Truth
     gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
-    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth")
 
     # Prediction
     if args.output_prediction_path is not None:
@@ -544,22 +569,32 @@ def inference_only(args: argparse.Namespace) -> None:
         pred_fig_name = _build_prediction_fig_name(dataset_folder, K, args)
         pred_fig_path = vis_root / pred_fig_name
 
-    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction")
+    try:
+        spectral.save_rgb(
+            str(gt_fig_path),
+            gt_map.astype(int),
+            colors=spectral.spy_colors,
+        )
+        spectral.save_rgb(
+            str(pred_fig_path),
+            pred_map.astype(int),
+            colors=spectral.spy_colors,
+        )
+        print(f"[INF-SAVE] 使用 spectral.save_rgb 保存 GT / Prediction 到 {vis_root}")
+    except Exception as e:
+        print(f"[INF-WARN] spectral.save_rgb 失败，回退为 matplotlib 可视化: {e}")
+        save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth", class_names=class_names)
+        save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", class_names=class_names)
 
-    # Error
-    error_fig_name = _build_error_fig_name(dataset_folder, K, args)
-    error_fig_path = vis_root / error_fig_name
-    save_error_map(gt_map, pred_map, error_fig_path)
-
-    # 伪彩色 / 分类 / 对比
+    # 伪彩色 / 分类 / 对比（依然生成 3 张 SA_* 图）
     generate_all_visualizations(
-        X=hsi_cube,
-        gt_map=gt_map,
-        pred_map=pred_map,
-        viz_dir=vis_root,
-        dataset_name=dataset_folder,
+        pred=pred_map,
+        gt=gt_map,
+        X_original=hsi_cube,
+        base_path=vis_root,
+        dataset_name=dataset_code,
         K=K,
-        window_size=args.window_size,
+        window=args.window_size,
         lr=args.lr,
         epochs=args.epochs,
         class_names=class_names,

@@ -1,13 +1,13 @@
 # SVM Models for Hyperspectral Image Classification
 
 本目录实现了用于高光谱图像分类的 **支持向量机（SVM）基线模型**，  
-与 `models/cnn` 中的 CNN 模型形成对照，用于评估在海岸带高光谱场景中「传统光谱特征 + SVM」的效果。:contentReference[oaicite:3]{index=3}
+与 `models/cnn` 中的 CNN 模型形成对照，用于评估在海岸带高光谱场景中「传统光谱特征 + SVM」的效果。
 
 ---
 
 ## 📁 目录总览
 
-详细结构见 `STRUCTURE.md`，这里给一个简化版概览：:contentReference[oaicite:4]{index=4}
+详细结构见 `STRUCTURE.md`，这里给一个简化版概览：
 
 ```text
 models/svm/
@@ -19,12 +19,13 @@ models/svm/
 │       ├── model.py              # SVMConfig + SVMClassifier
 │       ├── train.py              # 训练 + 推理 + 可视化（主入口）
 │       ├── prepare_data.py       # 从 .mat 构建 X/y（也给后端用）
-│       └── visualize_results.py  # 混淆矩阵 / 标签图 / Error map
+│       ├── utils.py              # 部分工具函数，从 CNN 复用
+│       └── visualize_results.py  # 混淆矩阵 / 标签图 / Pseudo / 对比图
 │
-├── data/                         # 可选：中间结果（X.npy / y.npy）
+├── data/                         # 存放 .mat 原始数据（与 CNN 数据一致）
 ├── trained_models/               # 训练好的 .joblib + .pca.pkl
 ├── reports/                      # 文本报告（OA / AA / Kappa 等）
-└── visualizations/               # PNG 可视化（GT / Prediction / Errors / Confusion）
+└── visualizations/               # PNG 可视化（GT / Prediction / Confusion / Pseudo / Classification / Comparison）
 ````
 
 ---
@@ -37,10 +38,10 @@ models/svm/
 * **Pavia University (PaviaU)**
 * **Salinas**
 
-原始 `.mat` 文件统一放在 `models/cnn/data/` 目录下：
+原始 `.mat` 文件统一放在 `models/svm/data/` 目录下：
 
 ```text
-models/cnn/data/
+models/svm/data/
 ├── IndianPines/
 │   ├── IndianPines_hsi.mat     # key: indian_pines_corrected
 │   └── IndianPines_gt.mat      # key: indian_pines_gt
@@ -59,8 +60,8 @@ models/cnn/data/
 ```bash
 # 示例：从 Salinas .mat 导出 X/y（可选）
 python -m models.svm.code.SVM.prepare_data \
-  --hsi-path models/cnn/data/Salinas/Salinas_hsi.mat \
-  --gt-path  models/cnn/data/Salinas/Salinas_gt.mat \
+  --hsi-path models/svm/data/Salinas/Salinas_hsi.mat \
+  --gt-path  models/svm/data/Salinas/Salinas_gt.mat \
   --hsi-key  salinas_corrected \
   --gt-key   salinas_gt \
   --out-x    models/svm/data/Salinas/X.npy \
@@ -94,17 +95,41 @@ python -m models.svm.code.SVM.train \
 
 运行完成后会生成：
 
-* 模型：`models/svm/trained_models/SVM/Salinas_model_pca=15_window=25_lr=0.001_epochs=100.joblib`
-* 标准化 & PCA：同名 `.joblib.pca.pkl`
-* 报告：`models/svm/reports/SVM/Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt`
-* 可视化：
+* 模型：
 
-  * `Salinas_groundtruth.png`
-  * `Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png`
-  * `Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png`
-  * `Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png`
+  ```text
+  models/svm/trained_models/SVM/
+    Salinas_model_pca=15_window=25_lr=0.001_epochs=100.joblib
+    Salinas_model_pca=15_window=25_lr=0.001_epochs=100.joblib.pca.pkl
+  ```
 
-报告中的指标字段对齐 CNN 报告，例如：
+* 报告：
+
+  ```text
+  models/svm/reports/SVM/
+    Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt
+  ```
+
+* 可视化（与 CNN 风格对齐，共 6 张核心图）：
+
+  ```text
+  models/svm/visualizations/SVM/
+    Salinas_groundtruth.png
+    Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png
+    Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png
+
+    SA_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png
+    SA_classification_pca=15_window=25_lr=0.001_epochs=100.png
+    SA_comparison_pca=15_window=25_lr=0.001_epochs=100.png
+  ```
+
+其中：
+
+* `Salinas_groundtruth.png` / `Salinas_prediction_*.png` 使用 `spectral.save_rgb(..., colors=spectral.spy_colors)` 上色，和 CNN 完全一致。
+* `SA_pseudocolor_*.png` 是三波段伪彩色图（田地照片风格）。
+* `SA_classification_*.png` 和 `SA_comparison_*.png` 分别是单图分类结果 & Prediction vs Ground Truth 对比图。
+
+报告中的指标字段也对齐 CNN 报告，例如：
 
 ```text
 Test loss (%) 2.9809
@@ -132,6 +157,8 @@ python -m models.svm.code.SVM.train \
   --degree 3
 ```
 
+输出文件类似 Salinas，只是前缀换成 `IndianPines_...` 与 `IP_...`，PCA 维度为 30。
+
 ### 3. PaviaU
 
 ```bash
@@ -147,6 +174,8 @@ python -m models.svm.code.SVM.train \
   --gamma scale \
   --degree 3
 ```
+
+前缀为 `PaviaU_...` 与 `PU_...`，PCA 维度为 15。
 
 ---
 
@@ -169,7 +198,7 @@ python -m models.svm.code.SVM.train \
 1. 自动从 `trained_models/SVM/` 加载匹配命名规则的模型；
 2. 在整幅图上做预测；
 3. 重新计算 OA / AA / Kappa / 混淆矩阵；
-4. 覆盖写入同名报告 & 可视化图片。
+4. 覆盖写入同名报告 & 可视化图片（同样 6 张核心图）。
 
 ---
 
@@ -178,18 +207,16 @@ python -m models.svm.code.SVM.train \
 > 实际接口实现位于 `backend/app/services/svm_service.py`，
 > 这里给出一个「约定式」说明，方便前后端对齐参数与返回格式。
 
-### 1. FastAPI 路由约定
-
-* 典型写法（在 `svm_service.py` 中）：
+### 1. FastAPI 路由约定（示意）
 
 ```python
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/svm", tags=["svm"])
 
 class SVMRunRequest(BaseModel):
-    dataset: str            # "IP" / "SA" / "PU"
+    dataset: str            # "IP" / "SA" / "PU" 或 "custom"
     test_ratio: float = 0.3
     window_size: int = 25
     pca_components_ip: int = 30
@@ -200,21 +227,17 @@ class SVMRunRequest(BaseModel):
     degree: int = 3
     class_weight: str | None = None
     random_state: int = 42
-
-@router.post("/run")
-def run_svm(req: SVMRunRequest):
-    ...
 ```
 
-> 具体字段名可以按后端最终实现为准，推荐与 `train.py` 的命令行参数保持一致，方便复用同一套配置。
+> 具体字段名以后端实现为准，推荐与 `train.py` 的命令行参数保持一致，方便复用同一套配置。
 
 服务内部会调用：
 
-* `load_hsi_gt(...) + build_samples_for_svm(...)` / `create_labeled_samples(...)`
+* `load_hsi_gt(...) + create_labeled_samples(...)`
 * 构造 `SVMConfig(...)`
-* 训练 or 加载 已有模型
-* `SVMClassifier.evaluate(...)` 计算指标
-* `save_label_map(...) / save_error_map(...) / save_confusion_matrix_figure(...)` 生成 PNG
+* 训练或加载已有模型
+* 使用 `SVMClassifier.evaluate(...)` 计算指标
+* 调用 `save_confusion_matrix_figure(...) / generate_all_visualizations(...)` 生成 PNG。
 
 ### 2. 推荐的请求 JSON（前端例子）
 
@@ -264,15 +287,17 @@ Content-Type: application/json
     "classification_report": "sklearn 原始文本"
   },
   "images": {
-    "groundtruth":  "/static/svm/Salinas_groundtruth.png",
-    "prediction":   "/static/svm/Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png",
-    "errors":       "/static/svm/Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png",
-    "confusion":    "/static/svm/Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png"
+    "groundtruth":   "/static/svm/Salinas_groundtruth.png",
+    "prediction":    "/static/svm/Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png",
+    "confusion":     "/static/svm/Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png",
+    "pseudocolor":   "/static/svm/SA_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png",
+    "classification":"/static/svm/SA_classification_pca=15_window=25_lr=0.001_epochs=100.png",
+    "comparison":    "/static/svm/SA_comparison_pca=15_window=25_lr=0.001_epochs=100.png"
   }
 }
 ```
 
-> 只要后端在 `main.py` 中把 `models/svm/visualizations/SVM` 挂到静态路径（例如 `/static/svm`），前端就可以直接用这些 URL 做 `<img>` 展示。
+> 如果后续需要增加 Error map，可在 `images` 中再追加一个可选字段，但当前默认实现不再生成错误分布图。
 
 ### 4. 前端最小调用示例（伪代码）
 
@@ -280,7 +305,7 @@ Content-Type: application/json
 // TypeScript / Vue / React 均可，示意一下
 
 const payload = {
-  dataset: "SA",          // 或 "IP" / "PU"
+  dataset: "SA",          // 或 "IP" / "PU" / "custom"
   test_ratio: 0.3,
   window_size: 25,
   pca_components_ip: 30,
@@ -309,8 +334,10 @@ console.log("Kappa", data.metrics.kappa);
 // 图片 URL 可以直接挂在 <img> 上
 // <img :src="data.images.groundtruth" />
 // <img :src="data.images.prediction" />
-// <img :src="data.images.errors" />
 // <img :src="data.images.confusion" />
+// <img :src="data.images.pseudocolor" />
+// <img :src="data.images.classification" />
+// <img :src="data.images.comparison" />
 ```
 
 ---

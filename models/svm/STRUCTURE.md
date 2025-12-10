@@ -18,12 +18,19 @@ models/svm/
 │       ├── model.py                    # SVMClassifier & SVMConfig
 │       ├── train.py                    # 训练 & 推理脚本（与 CNN CLI 对齐）
 │       ├── prepare_data.py             # 从 .mat 构建 X/y（可独立使用，也给后端用）
-│       └── visualize_results.py        # 混淆矩阵 / 标签图 / Error map 等可视化工具
+│       ├── utils.py                    # 一些通用工具函数（从 CNN 复用）
+│       └── visualize_results.py        # 混淆矩阵 / 标签图 / Pseudo / 对比图等可视化工具
 │
-├── data/                               # 预留给 SVM 使用的中间数据（目前不是必需）
-│   ├── IndianPines/                    # 可选：存放预计算的 X.npy / y.npy
+├── data/                               # SVM 使用的 .mat 原始数据（与 CNN 同源）
+│   ├── IndianPines/
+│   │   ├── IndianPines_hsi.mat
+│   │   └── IndianPines_gt.mat
 │   ├── PaviaU/
+│   │   ├── PaviaU_hsi.mat
+│   │   └── PaviaU_gt.mat
 │   └── Salinas/
+│       ├── Salinas_hsi.mat
+│       └── Salinas_gt.mat
 │
 ├── trained_models/
 │   └── SVM/
@@ -42,23 +49,34 @@ models/svm/
 │
 └── visualizations/
     └── SVM/
+        # 以 IndianPines 为例
         ├── IndianPines_confusion_pca=30_window=25_lr=0.001_epochs=100.png
         ├── IndianPines_groundtruth.png
         ├── IndianPines_prediction_pca=30_window=25_lr=0.001_epochs=100.png
-        ├── IndianPines_errors_pca=30_window=25_lr=0.001_epochs=100.png
+        ├── IP_pseudocolor_pca=30_window=25_lr=0.001_epochs=100.png
+        ├── IP_classification_pca=30_window=25_lr=0.001_epochs=100.png
+        ├── IP_comparison_pca=30_window=25_lr=0.001_epochs=100.png
         │
+        # Salinas
         ├── Salinas_confusion_pca=15_window=25_lr=0.001_epochs=100.png
         ├── Salinas_groundtruth.png
         ├── Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png
-        ├── Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── SA_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── SA_classification_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── SA_comparison_pca=15_window=25_lr=0.001_epochs=100.png
         │
+        # PaviaU
         ├── PaviaU_confusion_pca=15_window=25_lr=0.001_epochs=100.png
         ├── PaviaU_groundtruth.png
         ├── PaviaU_prediction_pca=15_window=25_lr=0.001_epochs=100.png
-        └── PaviaU_errors_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── PU_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── PU_classification_pca=15_window=25_lr=0.001_epochs=100.png
+        └── PU_comparison_pca=15_window=25_lr=0.001_epochs=100.png
 ````
-train.py 默认从 models/cnn/data 读取内置 demo 数据集（IndianPines / Salinas / PaviaU），用于离线训练基线模型；
-前端用户上传数据时，走的是 backend/app/services/svm_service.py，直接使用上传的 .mat 文件，不依赖 models/cnn/data 或 models/svm/data。
+
+`train.py` 默认从 `models/svm/data` 读取内置 demo 数据集（IndianPines / Salinas / PaviaU）的 `.mat` 文件，
+用于离线训练基线模型和生成配套可视化；前端用户上传数据时，走的是 `backend/app/services/svm_service.py`，
+直接使用上传的 .mat 文件，不依赖 `models/cnn/data` 或 `models/svm/data`。
 
 ---
 
@@ -99,17 +117,42 @@ train.py 默认从 models/cnn/data 读取内置 demo 数据集（IndianPines / S
 
 位于 `models/svm/visualizations/SVM/`：
 
-* `{DatasetName}_groundtruth.png`
-* `{DatasetName}_prediction_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
-* `{DatasetName}_errors_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
-* `{DatasetName}_confusion_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png`
+每个数据集会生成 **6 张核心图**：
 
-其中：
+```text
+# 以 Salinas 为例
 
-* **Ground Truth**：原 GT 标签图（背景=0）
-* **Prediction**：SVM 整图预测标签，背景位置设为 0
-* **Errors**：正确像素为绿色，错误像素为红色（比 CNN 多的一张“加分图”）
-* **Confusion**：带数值的混淆矩阵（行/列都按类别 ID 排序）
+Salinas_groundtruth.png
+Salinas_prediction_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
+Salinas_confusion_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
+
+SA_pseudocolor_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
+SA_classification_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
+SA_comparison_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
+```
+
+含义说明：
+
+* **Ground Truth**：`{DatasetName}_groundtruth.png`
+
+  * 使用 `spectral.save_rgb(gt_map, colors=spectral.spy_colors)` 直接对 GT 上色（与 CNN 完全一致）。
+* **Prediction**：`{DatasetName}_prediction_...png`
+
+  * SVM 对整幅图的预测标签，同样用 `spectral.spy_colors` 上色。
+* **Confusion**：`{DatasetName}_confusion_...png`
+
+  * 带数值标注的混淆矩阵图（行/列都按类别 ID 排序）。
+* **Pseudo color**：`{DatasetCode}_pseudocolor_...png`
+
+  * 直接从高光谱三波段组合生成伪彩色（与 CNN 的 SA/IP/PU 伪彩色田地图风格一致）。
+* **Classification**：`{DatasetCode}_classification_...png`
+
+  * 只看预测结果的标签图，带图例。
+* **Comparison**：`{DatasetCode}_comparison_...png`
+
+  * Prediction 和 Ground Truth 并排对照展示，底部共享一套图例。
+
+> 其中 `{DatasetCode} ∈ {IP, SA, PU}`，用于和 CNN 那边的 `IP_* / SA_* / PU_*` 文件名形式保持统一。
 
 ---
 
@@ -117,19 +160,20 @@ train.py 默认从 models/cnn/data 读取内置 demo 数据集（IndianPines / S
 
 1. **数据来源一致**
 
-   * CNN / SVM 都从 `models/cnn/data/{IndianPines,Salinas,PaviaU}` 读取 `.mat` 高光谱和 GT。
+   * CNN / SVM 都使用同一套 IndianPines / Salinas / PaviaU 高光谱数据，只是物理路径分属 `models/cnn/data` 与 `models/svm/data` 两套目录，内容保持一致。
+
 2. **训练 CLI 形态一致**
 
-   * CNN 与 SVM 的 `train.py` 都支持 `--dataset / --test_ratio / --pca_components_xx / --window_size / --lr / --epochs` 等参数。
+   * CNN 与 SVM 的 `train.py` 都支持 `--dataset / --test_ratio / --pca_components_xx / --window_size / --lr / --epochs` 等参数，方便对比实验。
+
 3. **输出文件类型一致**
 
-   * 都有：模型参数文件 + 文本报告 + 混淆矩阵 + Ground Truth + Prediction 可视化图。
-4. **额外能力**
+   * 都有：模型参数文件 + 文本报告 + 混淆矩阵 + Ground Truth + Prediction + Pseudo/Classification/Comparison 可视化图。
+   * 图像命名和展示风格基本对齐，只是前缀换成了 `.../cnn/...` vs `.../svm/...`。
 
-   * SVM 相比 CNN 多提供了一张 Error map（错误分布），可以作为项目亮点展示。
+4. **扩展示意**
 
-前端在做“结果对比页”时，可以直接并排展示 CNN / SVM 对同一数据集的这几张图和三大指标（OA / AA / Kappa），
-路径规则完全统一，只是前缀换成了 `.../cnn/...` vs `.../svm/...`。
+   * `visualize_results.py` 仍保留了 Error map 函数，但当前默认训练脚本不再自动生成错误分布图，如需要可以在 `train.py` 中打开调用作为附加实验图。
 
 ````
 
