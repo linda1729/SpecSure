@@ -36,6 +36,7 @@ from visualization import (
 
 def train(args):
     dataset = args.dataset
+    dataset_name = dataset
     window_size = args.window_size
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
@@ -114,7 +115,7 @@ def train(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     report_dir = os.path.join(cnn_dir, 'reports', 'HybridSN')
     os.makedirs(report_dir, exist_ok=True)
-    report_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_report_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.txt"
+    report_name = f"{dataset_name}_report_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.txt"
     report_path = os.path.join(report_dir, report_name)
     
     with open(report_path, 'w') as f:
@@ -130,7 +131,7 @@ def train(args):
     # 保存混淆矩阵可视化
     cm_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(cm_dir, exist_ok=True)
-    cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
+    cm_name = f"{dataset_name}_confusion_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
     cm_path = os.path.join(cm_dir, cm_name)
     # 尝试加载 CSV 中的人类可读类名映射
     class_name_map = load_class_names(dataset, data_path)
@@ -138,7 +139,7 @@ def train(args):
         class_names = [class_name_map.get(i+1, str(i+1)) for i in range(confusion.shape[0])]
     else:
         class_names = [str(i+1) for i in range(confusion.shape[0])]
-    visualize_confusion_matrix(confusion, class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion Matrix")
+    visualize_confusion_matrix(confusion, class_names, cm_path, title=f"{dataset_name} Confusion Matrix")
     print(f'Confusion matrix saved to: {cm_path}')
     
     # 完整图预测
@@ -147,8 +148,8 @@ def train(args):
     # 保存可视化结果
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-    pred_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_prediction_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
-    gt_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_groundtruth.png"
+    pred_name = f"{dataset_name}_prediction_pca={K}_window={window_size}_lr={args.lr}_epochs={args.epochs}.png"
+    gt_name = f"{dataset_name}_groundtruth.png"
     pred_path = os.path.join(viz_dir, pred_name)
     gt_path = os.path.join(viz_dir, gt_name)
     
@@ -163,6 +164,7 @@ def train(args):
 
 def test(args):
     dataset = args.dataset
+    dataset_name = dataset
     window_size = args.window_size
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path)
@@ -193,7 +195,7 @@ def test(args):
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     viz_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
     os.makedirs(viz_dir, exist_ok=True)
-    gt_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_groundtruth.png"
+    gt_name = f"{dataset_name}_groundtruth.png"
     gt_path = os.path.join(viz_dir, gt_name)
     
     spectral.save_rgb(args.output_prediction_path, outputs.astype(int), colors=spectral.spy_colors)
@@ -214,13 +216,13 @@ def test(args):
     y_pred = outputs[mask].ravel().astype(int)
     if y_true.size > 0:
         cm = confusion_matrix(y_true, y_pred)
-        cm_name = f"{DATASET_FOLDERS.get(dataset, dataset)}_confusion_infer_pca={K}_window={window_size}.png"
+        cm_name = f"{dataset_name}_confusion_infer_pca={K}_window={window_size}.png"
         cm_path = os.path.join(viz_dir, cm_name)
         if class_name_map is not None:
             cm_class_names = [class_name_map.get(i+1, str(i+1)) for i in range(cm.shape[0])]
         else:
             cm_class_names = [str(i+1) for i in range(cm.shape[0])]
-        visualize_confusion_matrix(cm, cm_class_names, cm_path, title=f"{DATASET_FOLDERS.get(dataset, dataset)} Confusion (Inference)")
+        visualize_confusion_matrix(cm, cm_class_names, cm_path, title=f"{dataset_name} Confusion (Inference)")
         print(f'Inference confusion matrix saved to: {cm_path}')
 
 

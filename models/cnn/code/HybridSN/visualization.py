@@ -4,6 +4,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+from utils import (
+    REQUIRED_FILES,
+    DATASET_FOLDERS,
+)
 
 
 def visualize_confusion_matrix(confusion, class_names, out_path, title=None):
@@ -53,7 +57,20 @@ def visualize_pseudo_color(image_3d, out_path, bands=[29, 19, 9], title='Pseudo 
 
 def visualize_classification(prediction, gt, out_path, title='Classification Result', class_names=None):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    num_classes = int(prediction.max())
+    try:
+        num_classes = int(prediction.max())
+    except Exception:
+        num_classes = 0
+    if num_classes <= 0:
+        # 没有预测类别，输出空白占位图并返回
+        plt.figure(figsize=(6, 4))
+        plt.text(0.5, 0.5, 'No predictions available', horizontalalignment='center', verticalalignment='center')
+        plt.axis('off')
+        plt.title(title)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=200, bbox_inches='tight')
+        plt.close()
+        return
     if num_classes <= 20:
         cmap = plt.cm.get_cmap('tab20', num_classes)
     else:
@@ -118,20 +135,40 @@ def visualize_comparison(pred, gt, out_path, title='Prediction vs Ground Truth',
 
 def generate_all_visualizations(pred, gt, X_original, base_path, dataset, K, window, lr=None, epochs=None, class_names=None):
     dataset_name = dataset
-    suffix = f"_pca={K}_window={window}_lr={lr}_epochs={epochs}"
+    # 构建稳健的后缀，避免重复与 None 字符串
+    suffix = f"_pca={K}_window={window}"
     if lr is not None and epochs is not None:
         suffix += f"_lr={lr}_epochs={epochs}"
+
+    os.makedirs(base_path, exist_ok=True)
+    saved_paths = []
+
     pc_path = os.path.join(base_path, f"{dataset_name}_pseudocolor{suffix}.png")
     try:
+        print(f"[visualization] pseudo_color input shapes: pred={getattr(pred, 'shape', None)}, gt={getattr(gt, 'shape', None)}, X_original={getattr(X_original, 'shape', None)}")
         visualize_pseudo_color(X_original, pc_path, title=f"{dataset_name} Pseudo Color")
+        saved_paths.append(pc_path)
     except Exception as e:
         print(f"警告：伪彩色生成失败: {e}")
+
     cls_path = os.path.join(base_path, f"{dataset_name}_classification{suffix}.png")
-    visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
+    try:
+        visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
+        saved_paths.append(cls_path)
+    except Exception as e:
+        print(f"警告：分类图生成失败: {e}")
+
     cmp_path = os.path.join(base_path, f"{dataset_name}_comparison{suffix}.png")
-    visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
-    print(f"已生成可视化产物：")
-    print(f"  - 伪彩色: {pc_path}")
-    print(f"  - 分类图: {cls_path}")
-    print(f"  - 对比图: {cmp_path}")
-    return [pc_path, cls_path, cmp_path]
+    try:
+        visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
+        saved_paths.append(cmp_path)
+    except Exception as e:
+        print(f"警告：对比图生成失败: {e}")
+
+    if saved_paths:
+        print(f"已生成可视化产物：")
+        for p in saved_paths:
+            print(f"  - {p}")
+    else:
+        print("未生成任何可视化产物（全部失败或无可用数据）")
+    return saved_paths
