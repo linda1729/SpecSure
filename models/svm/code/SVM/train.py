@@ -1,29 +1,15 @@
-"""
-models/svm/code/SVM/train.py
-
-SVM 主训练脚本，尽量对齐 CNN 的 HybridSN 版本的使用方式与输出格式：
-
-- 命令行参数与 HybridSN 基本一致，额外增加 SVM 超参数。
-- 模型命名规则：
-    {DatasetFolder}_model_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.joblib
-- 报告命名规则：
-    {DatasetFolder}_report_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.txt
-- 可视化输出（在 models/svm/visualizations/SVM/ 下）：
-    {DatasetFolder}_confusion_pca=...png
-    {DatasetFolder}_groundtruth.png
-    {DatasetFolder}_prediction_pca=...png
-    （额外）{DatasetFolder}_errors_pca=...png
-"""
-
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
 
 import joblib
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.metrics import confusion_matrix
 
 from model import SVMConfig, SVMClassifier
 from prepare_data import load_hsi_gt, create_labeled_samples
@@ -31,8 +17,8 @@ from visualize_results import (
     save_confusion_matrix_figure,
     save_label_map,
     save_error_map,
+    generate_all_visualizations,
 )
-
 
 # 和 CNN 保持一致的数据集文件命名
 DATASET_FOLDERS = {
@@ -53,9 +39,10 @@ REQUIRED_FILES = {
 # --------------------------
 def _resolve_base_paths(args: argparse.Namespace) -> Dict[str, Path]:
     """
-    自动推断项目根目录，以及 SVM / CNN 的 data 目录与输出目录。
-    默认会把数据放在 models/cnn/data 下（与 CNN 共用），
-    也可以通过 --data_path 手动指定。
+    自动推断项目根目录，以及 SVM 的 data / 输出目录。
+
+    默认从 models/svm/data 读取 .mat 数据。
+    如需复用 CNN 的 data，可通过 --data_path 指定为 models/cnn/data。
     """
     this_file = Path(__file__).resolve()
 
@@ -71,13 +58,14 @@ def _resolve_base_paths(args: argparse.Namespace) -> Dict[str, Path]:
 
     project_root = models_dir.parent
     svm_root = models_dir / "svm"
-    cnn_root = models_dir / "cnn"
+    cnn_root = models_dir / "cnn"  # 目前仅作为参考，不强依赖
 
+    # 数据根目录
     if args.data_path is not None:
         data_root = Path(args.data_path)
     else:
-        # 默认使用 CNN 的 data 目录
-        data_root = cnn_root / "data"
+        # ✅ 改为使用 SVM 自己的 data 目录
+        data_root = svm_root / "data"
 
     trained_root = svm_root / "trained_models" / "SVM"
     reports_root = svm_root / "reports" / "SVM"
@@ -116,11 +104,23 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--data_path", type=str, default=None, help="数据根目录（包含 IndianPines/Salinas/PaviaU 子目录）")
 
     # SVM 专属参数
-    parser.add_argument("--kernel", type=str, default="rbf", choices=["linear", "rbf", "poly", "sigmoid"], help="SVM 核函数")
+    parser.add_argument(
+        "--kernel",
+        type=str,
+        default="rbf",
+        choices=["linear", "rbf", "poly", "sigmoid"],
+        help="SVM 核函数",
+    )
     parser.add_argument("--C", type=float, default=10.0, help="SVM 正则化系数 C")
     parser.add_argument("--gamma", type=str, default="scale", help="gamma 参数（'scale', 'auto' 或 float）")
     parser.add_argument("--degree", type=int, default=3, help="poly 核的阶数")
-    parser.add_argument("--class_weight", type=str, default=None, choices=[None, "balanced"], help="类别权重")
+    parser.add_argument(
+        "--class_weight",
+        type=str,
+        default=None,
+        choices=[None, "balanced"],
+        help="类别权重（默认 None）",
+    )
     parser.add_argument("--random_state", type=int, default=42, help="随机种子")
 
     # 模型保存 & 仅推理
@@ -133,7 +133,7 @@ def build_argparser() -> argparse.ArgumentParser:
 
 
 # --------------------------
-# 训练 & 评估 & 可视化
+# 一些命名工具
 # --------------------------
 def _select_pca_components(dataset_code: str, args: argparse.Namespace) -> int:
     if dataset_code == "IP":
@@ -154,6 +154,10 @@ def _build_default_confusion_fig_name(dataset_folder: str, K: int, args: argpars
     return f"{dataset_folder}_confusion_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
 
+def _build_infer_confusion_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
+    return f"{dataset_folder}_confusion_infer_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
+
+
 def _build_prediction_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
     return f"{dataset_folder}_prediction_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
@@ -162,6 +166,9 @@ def _build_error_fig_name(dataset_folder: str, K: int, args: argparse.Namespace)
     return f"{dataset_folder}_errors_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
 
+# --------------------------
+# 训练 & 评估 & 可视化
+# --------------------------
 def train_and_evaluate(args: argparse.Namespace) -> None:
     paths = _resolve_base_paths(args)
 
@@ -184,8 +191,8 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     # 构造有标注的像元样本
     X, y, _ = create_labeled_samples(hsi_cube, gt_map)
     num_samples, num_features = X.shape
-    H, W, _ = hsi_cube.shape
-    print(f"[INFO] 有标注的像元数量: {num_samples} / {H*W}")
+    H, W, C = hsi_cube.shape
+    print(f"[INFO] 有标注的像元数量: {num_samples} / {H * W}")
     print(f"[INFO] 总样本数: {num_samples}, 特征维度: {num_features}")
 
     # 划分训练 / 测试集
@@ -200,9 +207,6 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     print(f"[INFO] 训练集: {X_train.shape[0]} 样本, 测试集: {X_test.shape[0]} 样本")
 
     # 标准化 + PCA
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.decomposition import PCA
-
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
@@ -222,7 +226,6 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
 
     # 配置 SVM
     try:
-        # 尝试将 gamma 转成 float，如果失败则保留字符串（'scale'/'auto'）
         gamma_param = float(args.gamma)
     except ValueError:
         gamma_param = args.gamma
@@ -307,15 +310,13 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
         f.write(f"Kappa accuracy (%) {kappa_percent:.2f}\n")
         f.write(f"Overall accuracy (%) {overall_acc_percent:.2f}\n")
         f.write(f"Average accuracy (%) {avg_acc_percent:.2f}\n\n")
-        # 直接写入 classification_report 文本
         f.write(cls_report + "\n\n")
-        # 再写入混淆矩阵（默认格式，更接近 CNN 风格）
         f.write(np.array2string(cm) + "\n")
 
     print(f"[SAVE] 已保存评估报告到: {report_path}")
 
     # -------------------
-    # 保存混淆矩阵图（带数字）
+    # 保存测试集混淆矩阵图
     # -------------------
     vis_root = paths["vis_root"]
     confusion_fig_name = _build_default_confusion_fig_name(dataset_folder, K, args)
@@ -326,40 +327,65 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
         cm,
         confusion_fig_path,
         class_names=class_names,
-        title=f"{dataset_folder} - SVM Confusion Matrix",
     )
 
     # -------------------
     # 整图预测 & 可视化（Ground Truth / Prediction / Error）
     # -------------------
-    H, W, C = hsi_cube.shape
     X_full = hsi_cube.reshape(-1, C)
     X_full_scaled = scaler.transform(X_full)
     if pca is not None:
         X_full_feat = pca.transform(X_full_scaled)
     else:
         X_full_feat = X_full_scaled
+
     y_full_pred = classifier.predict(X_full_feat)
     pred_map = y_full_pred.reshape(H, W)
-
-    # 将 GT 为 0 的背景像素设为 0，以便可视化
+    # 背景像元保持 0
     pred_map = pred_map.copy()
     pred_map[gt_map == 0] = 0
 
-    num_classes_full = int(gt_map.max())
-    # Ground Truth
-    gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
-    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth", num_classes=num_classes_full)
+    # 整图混淆矩阵（仅统计 GT>0 的像元）
+    mask_full = gt_map.ravel() > 0
+    y_true_full = gt_map.ravel()[mask_full]
+    y_pred_full = pred_map.ravel()[mask_full]
+    cm_full = confusion_matrix(y_true_full, y_pred_full, labels=np.arange(1, num_classes + 1))
 
-    # Prediction
+    infer_conf_name = _build_infer_confusion_fig_name(dataset_folder, K, args)
+    infer_conf_path = vis_root / infer_conf_name
+    save_confusion_matrix_figure(
+        cm_full,
+        infer_conf_path,
+        class_names=class_names,
+    )
+
+    # Ground Truth 图
+    gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
+    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth")
+
+    # Prediction 图
     pred_fig_name = _build_prediction_fig_name(dataset_folder, K, args)
     pred_fig_path = vis_root / pred_fig_name
-    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", num_classes=num_classes_full)
+    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction")
 
-    # Error map（可选加分）
+    # Error 图
     error_fig_name = _build_error_fig_name(dataset_folder, K, args)
     error_fig_path = vis_root / error_fig_name
     save_error_map(gt_map, pred_map, error_fig_path)
+
+    # 伪彩色 / 分类 / 对比（7 张图里剩下的 3 种）
+    generate_all_visualizations(
+        X=hsi_cube,
+        gt_map=gt_map,
+        pred_map=pred_map,
+        viz_dir=vis_root,
+        dataset_name=dataset_folder,
+        K=K,
+        window_size=args.window_size,
+        lr=args.lr,
+        epochs=args.epochs,
+        class_names=class_names,
+    )
 
     print("[DONE] 训练 + 评估 + 可视化 已完成。")
 
@@ -386,8 +412,8 @@ def inference_only(args: argparse.Namespace) -> None:
     hsi_cube, gt_map = load_hsi_gt(str(hsi_path), str(gt_path))
     X, y, _ = create_labeled_samples(hsi_cube, gt_map)
     num_samples, _ = X.shape
-    H, W, _ = hsi_cube.shape
-    print(f"[INF] 有标注的像元数量: {num_samples} / {H*W}")
+    H, W, C = hsi_cube.shape
+    print(f"[INF] 有标注的像元数量: {num_samples} / {H * W}")
 
     K = _select_pca_components(dataset_code, args)
 
@@ -446,7 +472,7 @@ def inference_only(args: argparse.Namespace) -> None:
     print(cls_report)
     print(cm)
 
-    # 保存报告
+    # 保存推理报告
     reports_root = paths["reports_root"]
     report_name = _build_default_report_name(dataset_folder, K, args)
     report_path = reports_root / report_name
@@ -464,7 +490,7 @@ def inference_only(args: argparse.Namespace) -> None:
         f.write(np.array2string(cm) + "\n")
     print(f"[INF-SAVE] 已保存推理报告到: {report_path}")
 
-    # 混淆矩阵图
+    # 测试集混淆矩阵图
     vis_root = paths["vis_root"]
     confusion_fig_name = _build_default_confusion_fig_name(dataset_folder, K, args)
     confusion_fig_path = vis_root / confusion_fig_name
@@ -474,11 +500,9 @@ def inference_only(args: argparse.Namespace) -> None:
         cm,
         confusion_fig_path,
         class_names=class_names,
-        title=f"{dataset_folder} - SVM Confusion Matrix (Inference)",
     )
 
     # 整图预测 & 可视化
-    H, W, C = hsi_cube.shape
     X_full = hsi_cube.reshape(-1, C)
     if scaler is not None:
         X_full_scaled = scaler.transform(X_full)
@@ -494,10 +518,25 @@ def inference_only(args: argparse.Namespace) -> None:
     pred_map = pred_map.copy()
     pred_map[gt_map == 0] = 0
 
-    num_classes_full = int(gt_map.max())
-    gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
-    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth", num_classes=num_classes_full)
+    # 整图混淆矩阵
+    mask_full = gt_map.ravel() > 0
+    y_true_full = gt_map.ravel()[mask_full]
+    y_pred_full = pred_map.ravel()[mask_full]
+    cm_full = confusion_matrix(y_true_full, y_pred_full, labels=np.arange(1, num_classes + 1))
 
+    infer_conf_name = _build_infer_confusion_fig_name(dataset_folder, K, args)
+    infer_conf_path = vis_root / infer_conf_name
+    save_confusion_matrix_figure(
+        cm_full,
+        infer_conf_path,
+        class_names=class_names,
+    )
+
+    # Ground Truth
+    gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
+    save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth")
+
+    # Prediction
     if args.output_prediction_path is not None:
         pred_fig_path = Path(args.output_prediction_path)
         pred_fig_path.parent.mkdir(parents=True, exist_ok=True)
@@ -505,11 +544,26 @@ def inference_only(args: argparse.Namespace) -> None:
         pred_fig_name = _build_prediction_fig_name(dataset_folder, K, args)
         pred_fig_path = vis_root / pred_fig_name
 
-    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", num_classes=num_classes_full)
+    save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction")
 
+    # Error
     error_fig_name = _build_error_fig_name(dataset_folder, K, args)
     error_fig_path = vis_root / error_fig_name
     save_error_map(gt_map, pred_map, error_fig_path)
+
+    # 伪彩色 / 分类 / 对比
+    generate_all_visualizations(
+        X=hsi_cube,
+        gt_map=gt_map,
+        pred_map=pred_map,
+        viz_dir=vis_root,
+        dataset_name=dataset_folder,
+        K=K,
+        window_size=args.window_size,
+        lr=args.lr,
+        epochs=args.epochs,
+        class_names=class_names,
+    )
 
     print("[INF-DONE] 推理 + 可视化 完成。")
 
