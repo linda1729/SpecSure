@@ -11,8 +11,8 @@ cnn/
 │   └── [ModelName]/            # 按模型名称分类
 │       ├── model.py            # 模型结构定义
 │       ├── train.py            # 训练主脚本
-│       ├── train_utils.py      # 训练工具函数
-│       ├── utils.py            # 通用工具
+│       ├── visualization.py    # 可视化工具（从 train_utils 中拆分）
+│       ├── utils.py            # 通用工具（数据/训练工具）
 │       └── api/                # FastAPI 推理接口
 │           └── predictor.py    # 推理工具类
 │
@@ -20,9 +20,7 @@ cnn/
 │   └── [DatasetName]/          # 按数据集名称分类
 │       ├── [datasetname]_hsi.mat      # 高光谱图像数据
 │       ├── [datasetname]_gt.mat       # Ground Truth 标签
-│       ├── [datasetname]_sar.mat      # SAR 数据（可选）
-│       ├── [datasetname]_lidar.mat    # LiDAR 数据（可选）
-│       └── [datasetname]_index.mat    # 训练/测试集索引（可选）
+│       └── [datasetname].csv          # 分类标签数字和英文名称对照表格（可选）    
 │
 ├── trained_models/             # 训练后的模型文件
 │   └── [ModelName]/            # 按模型名称分类
@@ -75,6 +73,20 @@ cd code/HybridSN
 python train.py --dataset SA --epochs 100 --window_size 25 --pca_components_other 15
 ```
 
+## 类别名称 CSV 支持
+
+在 `models/cnn/data/[Dataset]/` 下可以放置一个 `[Dataset].CSV` 文件，用于为类别提供可读名称。
+格式要求：每行以逗号分隔，第一列为类别数字（与 ground-truth 中的标签一致），第二列为类别英文名称。例如：
+
+```
+1,Water
+2,Bare Soil
+3,Vegetation
+...
+```
+
+若存在该文件，训练/推理脚本会自动读取并将这些名称用于混淆矩阵及图例；若未找到则使用数字标签作为名称。
+
 ### FastAPI 推理
 ```python
 from code.HybridSN.api.predictor import HybridSNPredictor
@@ -93,8 +105,18 @@ result = predictor.predict(data)
 示例: `Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt`
 
 ### 可视化文件
+#### spectral像素级图片（显示的更精准）【下面的都是调用matplodlib库画的，不精准但是好看】
 格式: `[Dataset]_prediction_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
 示例: `Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png`
+
+格式: `[Dataset]_groudtruth_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+示例: `Salinas_groudtruth_pca=15_window=25_lr=0.001_epochs=100.png`
+#### 伪色彩图
+格式：`[Dataset]_pseudocolor_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 分类图（预测后数据）
+格式：`[Dataset]_classification_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 对比图（预测后数据和gt数据对比）
+格式：`[Dataset]_comprasion_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
 
 ## 依赖项
 

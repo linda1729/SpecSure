@@ -1,219 +1,57 @@
-# SpecSure 后端 API 速览（FastAPI）
+# SpecSure 后端 API（HybridSN 接口版）
 
-所有接口前缀均为 `/api`，返回 JSON。文件上传使用 `multipart/form-data`。
+所有接口默认前缀 `/api/cnn`，返回 JSON。静态产物通过 `/cnn-static` 直接访问 `models/cnn/` 目录。
 
-## 1. 数据管理
-- `POST /api/datasets/upload` 上传 `.npy`/`.npz`（字段：`file`，可选 `name`）。→ `{ "dataset": {...} }`
-- `GET /api/datasets` 列出所有数据集。
-- `GET /api/datasets/{dataset_id}/metadata` 获取单个数据集信息。
-- `GET /api/datasets/{dataset_id}/preview-rgb?r=&g=&b=&downsample=` 生成伪彩色图，→ `{ "image_url": "/static/previews/xxx.png" }`
-- `GET /api/datasets/{dataset_id}/spectrum?row=&col=` 返回像元光谱。
+## 数据集
+- `GET /api/cnn/defaults`：返回默认超参与 IP/SA/PU 数据集状态（文件名、键名、是否就绪）。
+- `GET /api/cnn/datasets`：仅返回数据集状态列表。
+- `POST /api/cnn/datasets/upload`：上传/覆盖 `.mat`，字段：
+  - `dataset`: `IP | SA | PU`
+  - `hsi_file`: 高光谱 `.mat`
+  - `gt_file`: GT `.mat`
+  → `{ "dataset": { id, name, ready, data_file, gt_file, class_names, ... } }`
 
-## 2. 预处理
-- `POST /api/preprocess/run`
+## 训练 / 推理（HybridSN）
+- `POST /api/cnn/train`
 ```jsonc
 {
-  "dataset_id": "ds_001",
-  "noise_reduction": {"enabled": true, "method": "gaussian", "kernel_size": 3},
-  "band_selection": {"enabled": true, "method": "manual", "manual_ranges": [[10,150]], "n_components": 30},
-  "normalization": {"enabled": true, "method": "minmax"}
+  "dataset": "SA",
+  "test_ratio": 0.3,
+  "window_size": 25,
+  "pca_components_ip": 30,
+  "pca_components_other": 15,
+  "batch_size": 256,
+  "epochs": 100,
+  "lr": 0.001,
+  "data_path": null,                 // 可选，自定义数据目录
+  "model_path": null,                // 可选，训练保存路径
+  "inference_only": false,           // true 时仅推理
+  "input_model_path": null,          // 推理必填；留空则使用默认命名
+  "output_prediction_path": null     // 可选，推理输出图路径
 }
 ```
-→ `{ "pipeline": {...}, "output_dataset": {...} }`
-- `GET /api/preprocess/band-importance?dataset_id=` 返回每个波段的简单评分，示例：
-```jsonc
-{
-  "dataset_id": "ds_001",
-  "bands": [{"index":0,"score":0.12}, ...],
-  "top10": [12,15,...],
-  "message": "score 基于均值/方差简单计算，真实算法可替换"
-}
-```
+→ `TrainResponse`：
+  - `job_id`: 异步任务 ID（用于轮询）
+  - `status`/`progress`: 任务状态与百分比，`pending/running/succeeded/failed`
+  - `command`: 实际执行的 CLI
+  - `artifacts`: 模型、PCA、报告、可视化的路径与可直接访问的 `url`（含预测/伪彩/分类/对比/混淆图）
+  - `metrics`: 训练评估（从报告解析，推理模式为空）
+  - `class_names`: 若 data 目录下存在 `[Dataset].CSV`，返回标签映射
+  - `logs_tail`: 运行日志尾部
 
-## 3. 标注
-- `POST /api/labels/upload` 上传整幅 mask（字段：`dataset_id`, `file`，可选 `classes` 传 JSON 字符串）。→ `{ "label": {...} }`
-- `GET /api/labels` 列表标注。
-- `GET /api/labels/{label_id}/legend` 返回颜色图例（class_id/name/color）。
+> 实际调用 `models/cnn/code/HybridSN/train.py`，产物命名遵循 `cnn-说明文档.md`。
 
-## 4. 训练 + 预测
-- `POST /api/train-and-predict`
-```jsonc
-{
-  "dataset_id": "ds_xxx",
-  "label_id": "lb_xxx",
-  "random_seed": 42,
-  "models": [
-    {"name": "ModelA", "type": "svm", "enabled": true, "train_ratio": 0.7, "params": {"kernel": "rbf", "C": 1.0}},
-    {"name": "ModelB", "type": "cnn3d", "enabled": true, "train_ratio": 0.7, "params": {"epochs": 50, "batch_size": 32, "patch_size": 11}}
-  ]
-}
-```
-→ `{ "runs": [ { "model_run": {...}, "prediction": {...} } ] }`
-- `GET /api/models/cnn/status` 查看 CNN 网关状态；若未配置 `CNN_API_BASE` 则使用本地占位推理。
-- `GET /api/predictions[?dataset_id=]` 列出预测结果。
-- `GET /api/model-runs[?dataset_id=]` 列出训练记录。
+- `GET /api/cnn/train/{job_id}`：查询指定任务的最新状态，返回同 `TrainResponse`（用于前端进度条轮询）。***
 
-## 5. 评估
-- `POST /api/evaluate?prediction_id=&label_id=` → `EvaluationResult`（OA、Kappa、每类 PA/UA、混淆矩阵）。
+## 产物列表
+- `GET /api/cnn/artifacts`：列出 `trained_models/HybridSN`、`reports/HybridSN`、`visualizations/HybridSN` 下的文件，含可访问 URL。
 
-## 6. 可视化与像元查询
-- `GET /api/predictions/{pred_id}/image` → `{ "image_url": "/static/previews/xxx.png" }`
-- `GET /api/pixel-info?dataset_id=&label_id=&predA_id=&predB_id=&row=&col=` → 返回指定像元的真实/预测类别。
+## 评估列表
+- `GET /api/cnn/evaluations`：解析 `reports/HybridSN/*.txt` 与可视化命名，返回每组超参对应的指标、可视化路径与类目标签。
 
-## 7. 其他
-- `GET /health` → 健康检查。
-- 静态文件：`/static/...`（自动挂载 `backend/data`，分类/预览图均在此目录下）。
+## 预留
+- `POST /api/cnn/svm/train`：SVM 入口预留，暂未实现。
 
-
-
-# ##############################
-# SVM
-# ##############################
-
-# **SpecSure 后端 API 速览（FastAPI）**
-
-所有接口前缀均为 `/api`，返回 JSON 格式数据。文件上传使用 `multipart/form-data`。
-
----
-
-## 1️⃣ **数据管理**
-
-* `POST /api/datasets/upload`
-  上传 `.npy` / `.npz` 文件（字段：`file`，可选 `name`）。
-  返回 `{ "dataset": {...} }`
-
-* `GET /api/datasets`
-  列出所有数据集。
-
-* `GET /api/datasets/{dataset_id}/metadata`
-  获取单个数据集信息。
-
-* `GET /api/datasets/{dataset_id}/preview-rgb?r=&g=&b=&downsample=`
-  生成伪彩色图，返回 `{ "image_url": "/static/previews/xxx.png" }`
-
-* `GET /api/datasets/{dataset_id}/spectrum?row=&col=`
-  返回像元光谱。
-
----
-
-## 2️⃣ **预处理**
-
-* `POST /api/preprocess/run`
-  预处理请求体示例：
-
-```jsonc
-{
-  "dataset_id": "ds_001",
-  "noise_reduction": {"enabled": true, "method": "gaussian", "kernel_size": 3},
-  "band_selection": {"enabled": true, "method": "manual", "manual_ranges": [[10,150]], "n_components": 30},
-  "normalization": {"enabled": true, "method": "minmax"}
-}
-```
-
-返回示例：
-
-```json
-{
-  "pipeline": {...},
-  "output_dataset": {...}
-}
-```
-
-* `GET /api/preprocess/band-importance?dataset_id=`
-  返回每个波段的简单评分：
-
-```jsonc
-{
-  "dataset_id": "ds_001",
-  "bands": [{"index":0,"score":0.12}, ...],
-  "top10": [12,15,...],
-  "message": "score 基于均值/方差简单计算，真实算法可替换"
-}
-```
-
----
-
-## 3️⃣ **标注**
-
-* `POST /api/labels/upload`
-  上传整幅 mask（字段：`dataset_id`, `file`，可选 `classes` 传 JSON 字符串）。返回 `{ "label": {...} }`
-
-* `GET /api/labels`
-  列表标注。
-
-* `GET /api/labels/{label_id}/legend`
-  返回颜色图例（class_id/name/color）。
-
----
-
-## 4️⃣ **训练 + 预测**
-
-* `POST /api/train-and-predict`
-  训练与预测请求体示例：
-
-```jsonc
-{
-  "dataset_id": "ds_xxx",
-  "label_id": "lb_xxx",
-  "random_seed": 42,
-  "models": [
-    {"name": "ModelA", "type": "svm", "enabled": true, "train_ratio": 0.7, "params": {"kernel": "rbf", "C": 1.0}},
-    {"name": "ModelB", "type": "cnn3d", "enabled": true, "train_ratio": 0.7, "params": {"epochs": 50, "batch_size": 32, "patch_size": 11}}
-  ]
-}
-```
-
-返回示例：
-
-```json
-{
-  "runs": [
-    {
-      "model_run": {...},
-      "prediction": {...}
-    }
-  ]
-}
-```
-
-* `GET /api/models/cnn/status`
-  查看 CNN 网关状态；若未配置 `CNN_API_BASE` 则使用本地占位推理。
-
-* `GET /api/predictions[?dataset_id=]`
-  列出预测结果。
-
-* `GET /api/model-runs[?dataset_id=]`
-  列出训练记录。
-
----
-
-## 5️⃣ **评估**
-
-* `POST /api/evaluate?prediction_id=&label_id=`
-  返回评估结果（OA、Kappa、每类 PA/UA、混淆矩阵）。
-
----
-
-## 6️⃣ **可视化与像元查询**
-
-* `GET /api/predictions/{pred_id}/image`
-  返回 `{ "image_url": "/static/previews/xxx.png" }`
-
-* `GET /api/pixel-info?dataset_id=&label_id=&predA_id=&predB_id=&row=&col=`
-  返回指定像元的真实/预测类别。
-
----
-
-## 7️⃣ **其他**
-
-* `GET /health`
-  健康检查。
-
-* 静态文件：`/static/...`（自动挂载 `backend/data`，分类/预览图均在此目录下）。
-
----
-
-
-
-
-
+## 其他
+- `GET /health`：健康检查。
+- 静态：`/cnn-static/...` 对应 `models/cnn` 下的实际文件，可用于下载模型/报告/图片。***

@@ -1,54 +1,61 @@
-import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
+
+"""
+与 HybridSN CNN 模型保持一致的路径与数据集定义。
+"""
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-BACKEND_ROOT = PROJECT_ROOT / "backend"
-DATA_ROOT = BACKEND_ROOT / "data"
-RAW_DIR = DATA_ROOT / "raw"
-PREPROCESSED_DIR = DATA_ROOT / "preprocessed"
-LABEL_DIR = DATA_ROOT / "labels"
-PREDICTION_DIR = DATA_ROOT / "predictions"
-PREVIEW_DIR = DATA_ROOT / "previews"
-MODEL_DIR = DATA_ROOT / "models"
-TMP_DIR = DATA_ROOT / "tmp"
-META_PATH = DATA_ROOT / "meta.json"
+CNN_ROOT = PROJECT_ROOT / "models" / "cnn"
+HYBRID_CODE_DIR = CNN_ROOT / "code" / "HybridSN"
+CNN_DATA_DIR = CNN_ROOT / "data"
+TRAINED_DIR = CNN_ROOT / "trained_models" / "HybridSN"
+REPORT_DIR = CNN_ROOT / "reports" / "HybridSN"
+VIS_DIR = CNN_ROOT / "visualizations" / "HybridSN"
+LOG_DIR = CNN_ROOT / "logs" / "HybridSN"
+
+# 数据集与文件命名映射，需与 cnn-说明文档一致
+DATASET_DEFINITIONS: Dict[str, Dict[str, str]] = {
+    "IP": {
+        "name": "Indian Pines",
+        "folder": "IndianPines",
+        "data_file": "IndianPines_hsi.mat",
+        "data_key": "indian_pines_corrected",
+        "gt_file": "IndianPines_gt.mat",
+        "gt_key": "indian_pines_gt",
+    },
+    "SA": {
+        "name": "Salinas",
+        "folder": "Salinas",
+        "data_file": "Salinas_hsi.mat",
+        "data_key": "salinas_corrected",
+        "gt_file": "Salinas_gt.mat",
+        "gt_key": "salinas_gt",
+    },
+    "PU": {
+        "name": "PaviaU",
+        "folder": "PaviaU",
+        "data_file": "PaviaU_hsi.mat",
+        "data_key": "paviaU",
+        "gt_file": "PaviaU_gt.mat",
+        "gt_key": "paviaU_gt",
+    },
+}
+
+DATASET_FOLDER_TO_ID = {v["folder"]: k for k, v in DATASET_DEFINITIONS.items()}
+
+DEFAULT_HYPERPARAMS = {
+    "test_ratio": 0.3,
+    "window_size": 25,
+    "pca_components_ip": 30,
+    "pca_components_other": 15,
+    "batch_size": 256,
+    "epochs": 100,
+    "lr": 0.001,
+}
 
 
-def ensure_directories() -> None:
-    """Create required data directories if they do not exist."""
-    for path in [
-        RAW_DIR,
-        PREPROCESSED_DIR,
-        LABEL_DIR,
-        PREDICTION_DIR,
-        PREVIEW_DIR,
-        MODEL_DIR,
-        TMP_DIR,
-        META_PATH.parent,
-    ]:
+def ensure_cnn_directories() -> None:
+    """创建与 HybridSN 输出相关的目录（不存在时自动创建）。"""
+    for path in [CNN_ROOT, HYBRID_CODE_DIR, CNN_DATA_DIR, TRAINED_DIR, REPORT_DIR, VIS_DIR, LOG_DIR]:
         path.mkdir(parents=True, exist_ok=True)
-
-
-def default_meta() -> Dict[str, Any]:
-    return {
-        "datasets": [],
-        "pipelines": [],
-        "labels": [],
-        "model_runs": [],
-        "predictions": [],
-        "evaluations": [],
-    }
-
-
-def read_meta() -> Dict[str, Any]:
-    if META_PATH.exists():
-        with META_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    return default_meta()
-
-
-def write_meta(meta: Dict[str, Any]) -> None:
-    META_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with META_PATH.open("w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)

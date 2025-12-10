@@ -3,386 +3,248 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SpecSure · 海岸带高光谱分类系统</title>
+  <title>SpecSure · HybridSN 接入版</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="window">
     <div class="titlebar">
-      <div class="title">Coastline Hyperspectral Classification – Prototype v1.0</div>
+      <div class="title">Coastline Hyperspectral Classification – HybridSN</div>
       <div class="window-btns">
         <span class="dot yellow"></span>
         <span class="dot green"></span>
         <span class="dot red"></span>
       </div>
     </div>
-    <div class="menubar">
-      <div>File</div>
-      <div>Data</div>
-      <div>Model</div>
-      <div>Results</div>
-      <div>Help</div>
-    </div>
+
     <div class="layout">
       <aside class="sidebar">
         <div class="logo">SpecSure</div>
-        <button class="nav-item active" data-view="data">
-          <span>Data Import</span>
-        </button>
-        <button class="nav-item" data-view="preprocess">
-          <span>Preprocessing</span>
-        </button>
-        <button class="nav-item" data-view="training">
-          <span>Model Training</span>
-        </button>
-        <button class="nav-item" data-view="results">
-          <span>Results & Evaluation</span>
-        </button>
+        <button class="nav-item active" data-view="data">数据集</button>
+        <button class="nav-item" data-view="train">训练 / 推理</button>
+        <button class="nav-item" data-view="eval">评估</button>
+        <button class="nav-item" data-view="artifacts">产物</button>
         <button id="btnDocs" class="nav-item ghost">API Docs</button>
       </aside>
 
       <main class="workspace">
-        <!-- Data Import -->
+        <!-- 数据集 -->
         <section class="view active" id="view-data">
           <div class="view-header">
             <div>
               <p class="eyebrow">STEP 1</p>
-              <h1>Browse Import</h1>
+              <h1>数据上传与检查</h1>
             </div>
-            <div class="status" id="statusText">就绪 · 等待操作</div>
+            <div class="status" id="statusText">等待操作</div>
           </div>
 
-          <div class="card upload-card">
-            <div class="upload-zone" id="dropZone">
-              <div>
-                <p class="eyebrow">选择或拖拽文件</p>
-                <h3>Browse Files...</h3>
-                <p class="muted">Drag & Drop Files Here</p>
-              </div>
-              <input type="file" id="uploadFile" accept=".npy,.npz" />
-              <input type="text" id="uploadName" placeholder="可选：数据集名称" />
-              <button id="btnUpload" class="btn primary">上传</button>
-              <button id="btnDemo" class="btn ghost">加载示例数据</button>
+          <div class="card">
+            <p class="eyebrow">上传或覆盖 (.mat)</p>
+            <div class="field-row responsive">
+              <label>数据集
+                <select id="uploadDataset"></select>
+              </label>
+              <label>HSI 文件
+                <input type="file" id="hsiFile" accept=".mat" />
+              </label>
+              <label>GT 文件
+                <input type="file" id="gtFile" accept=".mat" />
+              </label>
+              <button id="btnUpload" class="btn primary">上传/覆盖</button>
+              <button id="btnUseDefaults" class="btn ghost" type="button">直接使用默认数据</button>
             </div>
-            <div class="table-card">
-              <div class="table-header">
-                <span>Filename</span><span>Status</span><span>Size</span>
-              </div>
-              <div id="datasetTable" class="table-body">
-                <div class="table-row"><span>-</span><span>-</span><span>-</span></div>
-              </div>
-            </div>
+            <p class="muted small">文件将保存到 models/cnn/data/[Dataset]/ 下，键名需符合 cnn-说明文档.md。</p>
           </div>
 
-          <div class="card preview-card">
-            <div class="preview-top">
+          <div class="card">
+            <div class="card-header">
               <div>
-                <p class="eyebrow">RGB 预览</p>
-                <div class="field-row">
-                  <label>数据集
-                    <select id="datasetSelect"></select>
-                  </label>
-                </div>
-                <div class="field-row">
-                  <label>R<input type="number" id="bandR" value="20" min="0" /></label>
-                  <label>G<input type="number" id="bandG" value="10" min="0" /></label>
-                  <label>B<input type="number" id="bandB" value="5" min="0" /></label>
-                  <label>Down<input type="number" id="downsample" value="2" min="1" max="16" /></label>
-                  <button id="btnPreview" class="btn">生成预览</button>
-                </div>
-                <img id="imgPreview" class="preview-img" src="" alt="预览" />
+                <p class="eyebrow">默认数据集</p>
+                <h3>IP / SA / PU</h3>
               </div>
-              <div>
-                <p class="eyebrow">光谱曲线</p>
-                <div class="field-row">
-                  <label>Row<input type="number" id="specRow" placeholder="row" /></label>
-                  <label>Col<input type="number" id="specCol" placeholder="col" /></label>
-                  <button id="btnSpectrum" class="btn ghost">查询</button>
-                </div>
-                <pre id="spectrumBox" class="spectrum-box">// 点击查询获取指定像元曲线</pre>
-              </div>
+              <button id="btnRefreshDatasets" class="btn ghost">刷新</button>
             </div>
+            <div id="datasetCards" class="card-grid"></div>
           </div>
         </section>
 
-        <!-- Preprocess -->
-        <section class="view" id="view-preprocess">
+        <!-- 训练/推理 -->
+        <section class="view" id="view-train">
           <div class="view-header">
             <div>
               <p class="eyebrow">STEP 2</p>
-              <h1>Data Preprocessing</h1>
+              <h1>HybridSN 训练与推理</h1>
             </div>
+            <div class="status">参数与模型均按 cnn-说明文档配置</div>
           </div>
+
           <div class="card grid-2">
             <div class="module">
-              <div class="module-header">
-                <div>
-                  <p class="eyebrow">Noise Reduction</p>
-                  <h3>滤波</h3>
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" id="nrEnabled" checked />
-                  <span></span>
+              <p class="eyebrow">基础参数</p>
+              <div class="field-row responsive">
+                <label>数据集
+                  <select id="trainDataset"></select>
+                </label>
+                <label>Test Ratio
+                  <input type="number" id="testRatio" step="0.05" min="0.05" max="0.9" />
+                </label>
+                <label>Window Size
+                  <input type="number" id="windowSize" min="5" />
                 </label>
               </div>
-              <div class="field-row">
-                <label>类型
-                  <select id="nrMethod">
-                    <option value="gaussian">Gaussian/Mean</option>
-                    <option value="median">Median</option>
-                  </select>
+              <div class="field-row responsive">
+                <label>PCA (IP)
+                  <input type="number" id="pcaIP" min="1" />
                 </label>
-                <label>核大小
-                  <input type="range" id="nrKernel" min="1" max="9" step="2" value="3" />
-                  <span id="nrKernelVal">3</span>
+                <label>PCA (其他)
+                  <input type="number" id="pcaOther" min="1" />
                 </label>
+                <label>Batch Size
+                  <input type="number" id="batchSize" min="1" />
+                </label>
+                <label>Epochs
+                  <input type="number" id="epochs" min="1" />
+                </label>
+                <label>LR
+                  <input type="number" id="learningRate" step="0.0001" />
+                </label>
+              </div>
+              <div class="actions">
+                <button id="btnTrain" class="btn primary">训练 + 评估</button>
+                <button id="btnInfer" class="btn ghost">仅推理</button>
+                <button id="btnResetParams" class="btn ghost" type="button">恢复默认超参</button>
               </div>
             </div>
 
             <div class="module">
-              <div class="module-header">
-                <div>
-                  <p class="eyebrow">Band Selection</p>
-                  <h3>波段选择</h3>
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" id="bsEnabled" checked />
-                  <span></span>
+              <p class="eyebrow">推理模型</p>
+              <div class="field-row responsive">
+                <label>已产出模型
+                  <select id="modelPathSelect"></select>
+                </label>
+                <label>或手动输入
+                  <input type="text" id="modelPathManual" placeholder="绝对或相对路径" />
                 </label>
               </div>
-              <div class="field-row">
-                <label>方式
-                  <select id="bsMethod">
-                    <option value="manual">Manual Range</option>
-                    <option value="pca">PCA Top K</option>
-                  </select>
-                </label>
-                <label>范围
-                  <input type="text" id="bsRanges" value="0-30,40-80" />
-                </label>
-                <label>K
-                  <input type="number" id="bsPca" value="16" min="1" />
-                </label>
-                <button id="btnBandImportance" class="btn ghost">波段评分</button>
+              <div class="actions">
+                <button id="btnFillDefaultModel" class="btn ghost" type="button">填入默认命名路径</button>
               </div>
-              <div id="bandImportance" class="importance-list"></div>
+              <p class="muted small">推理模式需要选择或填写有效的 .pth；留空则使用当前参数推算的默认路径。</p>
             </div>
+          </div>
 
+          <div class="card">
+            <div class="module progress-module">
+              <div class="progress-meta">
+                <div>
+                  <p class="eyebrow">运行进度</p>
+                  <div id="progressLabel" class="muted small">等待执行</div>
+                </div>
+                <div id="progressNumber" class="progress-number">0%</div>
+              </div>
+              <div class="progress-bar">
+                <div id="progressFill"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="eyebrow">类别标签 (来自 CSV)</p>
+            <div id="classNamesBox" class="class-names muted tiny">等待选择数据集...</div>
+          </div>
+
+          <div class="card grid-2">
             <div class="module">
-              <div class="module-header">
-                <div>
-                  <p class="eyebrow">Normalization</p>
-                  <h3>标准化</h3>
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" id="normEnabled" checked />
-                  <span></span>
-                </label>
-              </div>
-              <div class="field-row">
-                <label>方法
-                  <select id="normMethod">
-                    <option value="minmax">Min-Max</option>
-                    <option value="zscore">Z-Score</option>
-                  </select>
-                </label>
-              </div>
+              <p class="eyebrow">评估指标 / 产物</p>
+              <div id="metricsBox" class="metric-list muted">等待运行...</div>
+              <div class="artifact-links" id="artifactLinks"></div>
+              <div id="runMessage" class="muted"></div>
             </div>
-
-            <div class="module full">
-              <p class="eyebrow">输出</p>
-              <div id="preprocessResult" class="muted"></div>
-              <button id="btnPreprocess" class="btn primary">Apply Preprocessing</button>
+            <div class="module">
+              <p class="eyebrow">可视化</p>
+              <div id="previewImages" class="preview-grid">
+                <div>
+                  <p class="muted">预测</p>
+                  <img id="imgPrediction" class="preview-img" alt="prediction" />
+                </div>
+                <div>
+                  <p class="muted">Ground Truth</p>
+                  <img id="imgGT" class="preview-img" alt="ground truth" />
+                </div>
+                <div>
+                  <p class="muted">混淆矩阵</p>
+                  <img id="imgConfusion" class="preview-img" alt="confusion" />
+                </div>
+                <div>
+                  <p class="muted">推理混淆</p>
+                  <img id="imgInferConfusion" class="preview-img" alt="inference confusion" />
+                </div>
+                <div>
+                  <p class="muted">伪彩色</p>
+                  <img id="imgPseudo" class="preview-img" alt="pseudo color" />
+                </div>
+                <div>
+                  <p class="muted">分类图</p>
+                  <img id="imgClassify" class="preview-img" alt="classification" />
+                </div>
+                <div class="wide">
+                  <p class="muted">对比图 (预测 vs GT)</p>
+                  <img id="imgCompare" class="preview-img" alt="comparison" />
+                </div>
+              </div>
+              <pre id="runLogs" class="log-box small">// 运行日志尾部</pre>
             </div>
           </div>
         </section>
 
-        <!-- Training -->
-        <section class="view" id="view-training">
+        <!-- 产物 -->
+        <section class="view" id="view-artifacts">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">STEP 4</p>
+              <h1>产物归档</h1>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-grid">
+              <div class="panel">
+                <p class="eyebrow">模型 / PCA</p>
+                <div id="artifactModels" class="list muted"></div>
+              </div>
+              <div class="panel">
+                <p class="eyebrow">报告</p>
+                <div id="artifactReports" class="list muted"></div>
+              </div>
+              <div class="panel">
+                <p class="eyebrow">可视化</p>
+                <div id="artifactVisuals" class="list muted"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 评估 -->
+        <section class="view" id="view-eval">
           <div class="view-header">
             <div>
               <p class="eyebrow">STEP 3</p>
-              <h1>Model Training</h1>
-              <p class="muted">Select & Configure Models</p>
+              <h1>评估指标与可视化</h1>
             </div>
+            <div class="status muted">解析 reports/HybridSN 与 visualizations/HybridSN</div>
           </div>
-          <div class="card service-card">
-            <div class="service-head">
-              <div>
-                <p class="eyebrow">模型服务</p>
-                <h3>CNN 网关状态</h3>
-                <p class="muted" id="cnnStatusDesc">正在检查服务...</p>
-              </div>
-              <div class="badge-wrap">
-                <span class="badge" id="cnnStatusBadge">检测中</span>
-                <span class="badge ghost" id="cnnEndpointBadge">-</span>
-              </div>
-            </div>
-            <div class="service-meta">
-              <div>
-                <span class="meta-label">模式</span>
-                <strong id="cnnMode">-</strong>
-              </div>
-              <div>
-                <span class="meta-label">超时时间</span>
-                <strong id="cnnTimeout">-</strong>
-              </div>
-              <div>
-                <span class="meta-label">路径</span>
-                <strong id="cnnPath">/predict</strong>
-              </div>
-            </div>
-          </div>
-          <div class="card training-grid">
-            <div class="model-card">
-              <div class="model-header">
-                <div>
-                  <p class="eyebrow">Machine Learning</p>
-                  <h3>模型 A</h3>
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" id="modelAEnabled" checked />
-                  <span></span>
-                </label>
-              </div>
-              <label>Algorithm
-                <select id="modelAType">
-                  <option value="svm">SVM</option>
-                  <option value="rf">Random Forest</option>
-                  <option value="knn">KNN</option>
-                </select>
-              </label>
-              <label>C Parameter
-                <input type="range" id="modelAC" min="0.1" max="5" step="0.1" value="1.0" />
-                <span id="modelACVal">1.0</span>
-              </label>
-              <label>Gamma
-                <input type="text" id="modelAGamma" value="scale" />
-              </label>
-            </div>
-
-            <div class="model-card">
-              <div class="model-header">
-                <div>
-                  <p class="eyebrow">Deep Learning</p>
-                  <h3>模型 B</h3>
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" id="modelBEnabled" checked />
-                  <span></span>
-                </label>
-              </div>
-              <label>Algorithm
-                <select id="modelBType">
-                  <option value="cnn3d" selected>3D CNN / HybridSN</option>
-                  <option value="rf">Random Forest (兼容)</option>
-                  <option value="svm">SVM (兼容)</option>
-                </select>
-              </label>
-              <label>Patch Size
-                <input type="range" id="modelBPatch" min="5" max="25" step="2" value="11" />
-                <span id="modelBPatchVal">11</span>
-              </label>
-              <label>Epochs
-                <input type="number" id="modelBEpochs" value="50" />
-              </label>
-              <label>Batch Size
-                <input type="number" id="modelBBatch" value="32" />
-              </label>
-              <label>Optimizer
-                <select id="modelBOpt">
-                  <option value="adam">Adam</option>
-                  <option value="sgd">SGD</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div class="card split-card">
-            <div>
-              <p class="eyebrow">Training Data Split</p>
-              <label>Train Ratio
-                <input type="range" id="trainRatio" min="0.1" max="0.9" step="0.05" value="0.7" />
-                <span id="trainRatioVal">0.7</span>
-              </label>
-              <label>Random Seed
-                <input type="number" id="randomSeed" value="42" />
-              </label>
-            </div>
-            <div>
-              <p class="eyebrow">数据与标注</p>
-              <label>训练数据集
-                <select id="trainDatasetSelect"></select>
-              </label>
-              <label>标注
-                <select id="labelSelect"></select>
-              </label>
-              <button id="btnTrain" class="btn primary">Start Training</button>
-              <div id="trainResult" class="muted"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Results -->
-        <section class="view" id="view-results">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">STEP 4-5</p>
-              <h1>Results & Evaluation</h1>
-            </div>
-            <div class="field-row">
-              <select id="resultPredSelect"></select>
-              <select id="resultLabelSelect"></select>
-              <button id="btnEvaluate" class="btn">Evaluate</button>
-            </div>
-          </div>
-
-          <div class="card circle-grid">
-            <div class="circle-cell">
-              <p class="sub">Original False Color</p>
-              <img id="circleRaw" class="circle-img" src="" alt="Raw" />
-            </div>
-            <div class="circle-cell">
-              <p class="sub">Classification (A)</p>
-              <img id="circleA" class="circle-img" src="" alt="A" />
-            </div>
-            <div class="circle-cell">
-              <p class="sub">Classification (B)</p>
-              <img id="circleB" class="circle-img" src="" alt="B" />
-            </div>
-          </div>
-
-          <div class="legend" id="legendBox"></div>
-
-          <div class="card metrics">
-            <div class="metric-card">
-              <div class="metric-title">Overall Accuracy</div>
-              <div class="metric-value" id="metricOA">-</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-title">Kappa</div>
-              <div class="metric-value" id="metricKappa">-</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-title">训练日志</div>
-              <pre id="logBox"></pre>
-            </div>
-          </div>
-
-          <div class="card matrix-card">
-            <div>
-              <p class="eyebrow">Confusion Matrix</p>
-              <div id="cmTable"></div>
-            </div>
-            <div>
-              <p class="eyebrow">Class Accuracy</p>
-              <div id="classTable"></div>
-            </div>
+          <div class="card">
+            <div id="evaluationList" class="eval-list"></div>
           </div>
         </section>
       </main>
     </div>
+
+    <div class="log-panel">
+      <div class="log-title">运行日志</div>
+      <pre id="logBox"></pre>
+    </div>
   </div>
+
   <script src="./app.js"></script>
 </body>
 </html>

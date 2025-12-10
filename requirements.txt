@@ -1,4 +1,4 @@
-# 大家先给自己的环境改成Python 3.11 这个环境下跑numpy这些库会稳定一点，我对yb的requirements做了合并。
+# 这个环境是我根据Python 3.11配的，目前看3.10也行，但是不可以是3.12！3.11 这个环境下跑numpy这些库会稳定一点，我对yb的requirements做了合并。
 addict==2.4.0
 certifi==2025.1.31
 charset-normalizer==3.4.1

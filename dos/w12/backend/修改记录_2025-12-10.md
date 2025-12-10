@@ -1,0 +1,11 @@
+- backend/app/schemas.py：增加类目标签、可视化字段与评估项模型，支撑前端展示全量产物与标签。
+- backend/app/core/config.py：补充数据集文件夹到 ID 的映射，便于评估解析。
+- backend/app/services/cnn_service.py：统一可视化命名、增加标签 CSV 读取、新增 /api/cnn/evaluations 评估列表接口并返回扩展产物路径。
+- models/cnn/code/HybridSN/train.py & visualization.py：调整报告/可视化文件命名，生成伪彩色、分类、对比图（含 CSV 标签与兼容别名）。
+- mockfrontend/app.js、index.html、styles.css：新增评估视图与标签展示，扩展训练结果可视化（伪彩、分类、对比、推理混淆）并优化样式。
+- backend/API.md：补充新字段与评估接口说明。
+- models/cnn/code/HybridSN/train.py：训练完成后输出整图推理混淆矩阵（带超参后缀），前端可直接展示。***
+- backend/app/services/cnn_service.py：可视化列表去除 comprasion/comparison 的重复显示，避免产物界面重复。***
+- backend/app/services/cnn_service.py：评估列表按相同超参仅保留最新报告，避免同一数据集/参数重复卡片。***
+- backend/app/services/cnn_service.py：评估列表进一步按数据集取最新一条，防止同一数据集出现多卡片。***
+- BACKEND_OVERVIEW.md：新增后端实现与可视化产物说明文档，便于报告引用。***
