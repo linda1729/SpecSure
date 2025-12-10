@@ -107,8 +107,7 @@ def visualize_pseudo_color(
     """
     从高光谱数据中抽取 3 个波段，生成伪彩色图。
 
-    这里 **固定假设输入是 (H, W, C)**，和 Salinas / IndianPines / PaviaU 一致，
-    这样伪彩色图就是 CNN 那种“田地照片”的效果。
+    假设输入是 (H, W, C)，这样伪彩色图就是 CNN 那种“田地照片”的效果。
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -318,7 +317,7 @@ def visualize_comparison(
 
 
 # =========================
-# （可选）错误图函数：目前不在 train.py 中使用
+# 错误图函数：被 train.py 调用
 # =========================
 
 def save_error_map(
@@ -332,7 +331,8 @@ def save_error_map(
     - 背景像元 (gt==0): 灰色
     - 正确像元: 绿色
     - 错误像元: 红色
-    （当前 SVM 训练脚本不再调用此函数，只保留以备不时之需）
+
+    现在由 train.py / inference_only 用于生成 {DatasetName}_errors_pca=...png。
     """
     gt = np.asarray(gt_map)
     pred = np.asarray(pred_map)
