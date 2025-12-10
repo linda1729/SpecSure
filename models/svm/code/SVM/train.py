@@ -19,7 +19,8 @@ from visualize_results import (
     save_confusion_matrix_figure,
     save_label_map,
     generate_all_visualizations,
-    visualize_confusion_matrix,  # 当前未使用，保留不影响
+    visualize_confusion_matrix,  # 当前未直接使用，保留不影响
+    save_error_map,              # ✅ 新增：误差图可视化
 )
 
 # 和 CNN 保持一致的数据集文件命名
@@ -193,6 +194,11 @@ def _build_default_confusion_fig_name(dataset_folder: str, K: int, args: argpars
 
 def _build_prediction_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
     return f"{dataset_folder}_prediction_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
+
+
+def _build_error_fig_name(dataset_folder: str, K: int, args: argparse.Namespace) -> str:
+    """✅ 误差图命名，与之前保持一致：{DatasetName}_errors_pca=..."""
+    return f"{dataset_folder}_errors_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.png"
 
 
 # --------------------------
@@ -381,7 +387,7 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     pred_map = pred_map.copy()
     pred_map[gt_map == 0] = 0
 
-    # Ground Truth / Prediction 图（和 CNN 一样用 spectral.save_rgb）
+    # Ground Truth / Prediction 图（spectral.save_rgb，与 CNN 一致）
     gt_fig_path = vis_root / f"{dataset_folder}_groundtruth.png"
     pred_fig_name = _build_prediction_fig_name(dataset_folder, K, args)
     pred_fig_path = vis_root / pred_fig_name
@@ -404,7 +410,19 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
         save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", class_names=class_names)
 
     # -------------------
-    # 伪彩色 / 分类 / 对比（SA_* 三张，与 CNN 对齐）
+    # ✅ 误差图（Prediction Error Map）
+    # -------------------
+    error_fig_name = _build_error_fig_name(dataset_folder, K, args)
+    error_fig_path = vis_root / error_fig_name
+    save_error_map(
+        gt_map=gt_map,
+        pred_map=pred_map,
+        out_path=error_fig_path,
+        title=f"{dataset_folder} Prediction Error Map",
+    )
+
+    # -------------------
+    # 伪彩色 / 分类 / 对比（SA/IP/PU 三张，与 CNN 对齐）
     # -------------------
     generate_all_visualizations(
         pred=pred_map,
@@ -586,7 +604,17 @@ def inference_only(args: argparse.Namespace) -> None:
         save_label_map(gt_map, gt_fig_path, title=f"{dataset_folder} Ground Truth", class_names=class_names)
         save_label_map(pred_map, pred_fig_path, title=f"{dataset_folder} SVM Prediction", class_names=class_names)
 
-    # 伪彩色 / 分类 / 对比（依然生成 3 张 SA_* 图）
+    # ✅ 误差图（仅推理模式也生成）
+    error_fig_name = _build_error_fig_name(dataset_folder, K, args)
+    error_fig_path = vis_root / error_fig_name
+    save_error_map(
+        gt_map=gt_map,
+        pred_map=pred_map,
+        out_path=error_fig_path,
+        title=f"{dataset_folder} Prediction Error Map",
+    )
+
+    # 伪彩色 / 分类 / 对比（依然生成 3 张 SA/IP/PU 图）
     generate_all_visualizations(
         pred=pred_map,
         gt=gt_map,

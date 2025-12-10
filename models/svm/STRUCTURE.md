@@ -64,6 +64,7 @@ models/svm/
         ├── SA_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png
         ├── SA_classification_pca=15_window=25_lr=0.001_epochs=100.png
         ├── SA_comparison_pca=15_window=25_lr=0.001_epochs=100.png
+        ├── Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png
         │
         # PaviaU
         ├── PaviaU_confusion_pca=15_window=25_lr=0.001_epochs=100.png

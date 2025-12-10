@@ -25,7 +25,7 @@ models/svm/
 ├── data/                         # 存放 .mat 原始数据（与 CNN 数据一致）
 ├── trained_models/               # 训练好的 .joblib + .pca.pkl
 ├── reports/                      # 文本报告（OA / AA / Kappa 等）
-└── visualizations/               # PNG 可视化（GT / Prediction / Confusion / Pseudo / Classification / Comparison）
+└── visualizations/               # PNG 可视化（GT / Prediction / Confusion / Pseudo / Classification / Comparison / Error）
 ````
 
 ---
@@ -110,7 +110,7 @@ python -m models.svm.code.SVM.train \
     Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt
   ```
 
-* 可视化（与 CNN 风格对齐，共 6 张核心图）：
+* 可视化（与 CNN 风格对齐，共 7 张核心图）：
 
   ```text
   models/svm/visualizations/SVM/
@@ -121,6 +121,7 @@ python -m models.svm.code.SVM.train \
     SA_pseudocolor_pca=15_window=25_lr=0.001_epochs=100.png
     SA_classification_pca=15_window=25_lr=0.001_epochs=100.png
     SA_comparison_pca=15_window=25_lr=0.001_epochs=100.png
+    Salinas_errors_pca=15_window=25_lr=0.001_epochs=100.png
   ```
 
 其中：
@@ -128,6 +129,7 @@ python -m models.svm.code.SVM.train \
 * `Salinas_groundtruth.png` / `Salinas_prediction_*.png` 使用 `spectral.save_rgb(..., colors=spectral.spy_colors)` 上色，和 CNN 完全一致。
 * `SA_pseudocolor_*.png` 是三波段伪彩色图（田地照片风格）。
 * `SA_classification_*.png` 和 `SA_comparison_*.png` 分别是单图分类结果 & Prediction vs Ground Truth 对比图。
+* `Salinas_errors_*.png` 是错误预测图。
 
 报告中的指标字段也对齐 CNN 报告，例如：
 
