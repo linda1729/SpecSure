@@ -16,7 +16,7 @@ cnn/
 │       └── api/                # FastAPI 推理接口
 │           └── predictor.py    # 推理工具类
 │
-├── data/                        # 数据集目录
+├── data/                        # 数据集目录（兼容保留）；默认从项目根 ./data/[Dataset]/ 读取
 │   └── [DatasetName]/          # 按数据集名称分类
 │       ├── [datasetname]_hsi.mat      # 高光谱图像数据
 │       ├── [datasetname]_gt.mat       # Ground Truth 标签
@@ -40,6 +40,7 @@ cnn/
         └── [Dataset]_prediction_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png
         └── [Dataset]_groundtruth.png
 ```
+> 默认数据读取路径为项目根目录 `./data/[Dataset]/`（与 SVM 共享）。
 
 ## 当前支持的模型
 
@@ -75,7 +76,7 @@ python train.py --dataset SA --epochs 100 --window_size 25 --pca_components_othe
 
 ## 类别名称 CSV 支持
 
-在 `models/cnn/data/[Dataset]/` 下可以放置一个 `[Dataset].CSV` 文件，用于为类别提供可读名称。
+在 `data/[Dataset]/` 下可以放置一个 `[Dataset].CSV` 文件，用于为类别提供可读名称。
 格式要求：每行以逗号分隔，第一列为类别数字（与 ground-truth 中的标签一致），第二列为类别英文名称。例如：
 
 ```
@@ -117,6 +118,8 @@ result = predictor.predict(data)
 格式：`[Dataset]_classification_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
 #### 对比图（预测后数据和gt数据对比）
 格式：`[Dataset]_comprasion_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 错误图（预测错误/正确对比）
+格式：`[Dataset]_error_map_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`（或 `[Dataset]_errors_...`）
 
 ## 依赖项
 

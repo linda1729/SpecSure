@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import numpy as np
 import torch
 import joblib
@@ -42,27 +43,45 @@ DATASET_FOLDERS = {
     'PU': 'PaviaU'
 }
 
+DATA_KEYS = {
+    'IP': ('indian_pines_corrected', 'indian_pines_gt'),
+    'SA': ('salinas_corrected', 'salinas_gt'),
+    'PU': ('paviaU', 'paviaU_gt'),
+}
+
 
 def resolve_data_path(args):
+    """
+    返回目标数据集所在目录，默认指向项目根目录下的 data/[Dataset]。
+    """
+    if args.dataset not in DATASET_FOLDERS:
+        raise ValueError('当前仅支持预置数据集 IP/SA/PU，已移除自定义上传流程')
     if args.data_path is None:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        cnn_dir = os.path.dirname(os.path.dirname(script_dir))
-        data_path = os.path.join('../../../../', 'data', DATASET_FOLDERS.get(args.dataset, args.dataset))
+        # /.../models/cnn/code/HybridSN/utils.py -> parents[4] 是仓库根
+        project_root = Path(__file__).resolve().parents[4]
+        data_path = project_root / "data" / DATASET_FOLDERS.get(args.dataset, args.dataset)
     else:
-        data_path = os.path.abspath(args.data_path)
-    if not os.path.isdir(data_path):
+        data_path = Path(args.data_path).expanduser()
+        if not data_path.is_absolute():
+            data_path = data_path.resolve()
+    data_path = data_path.resolve()
+    if not data_path.is_dir():
         raise FileNotFoundError(f'数据目录不存在: {data_path}')
-    return data_path
+    return str(data_path)
 
 
-def verify_dataset_files(dataset, data_path):
+def verify_dataset_files(dataset, data_path, data_file=None, gt_file=None):
+    if dataset not in REQUIRED_FILES:
+        raise FileNotFoundError('当前仅支持预置数据集 IP/SA/PU，已关闭自定义数据集上传')
     missing = [f for f in REQUIRED_FILES[dataset] if not os.path.isfile(os.path.join(data_path, f))]
     if missing:
         raise FileNotFoundError(f'下列数据文件未找到于 {data_path}: {missing}')
 
 
-def load_dataset(dataset, data_path, pca_components_ip, pca_components_other):
-    X, y = load_data(dataset, data_path)
+def load_dataset(dataset, data_path, pca_components_ip, pca_components_other, data_file=None, gt_file=None, data_key=None, gt_key=None):
+    if dataset not in REQUIRED_FILES:
+        raise ValueError('当前仅支持预置数据集 IP/SA/PU')
+    X, y = load_data(dataset, data_path, data_key=data_key, gt_key=gt_key)
     K = pca_components_ip if dataset == 'IP' else pca_components_other
     output_units = 9 if dataset in ['PU','PC'] else 16
     return X, y, K, output_units
@@ -106,18 +125,27 @@ def load_pca(model_path):
     return None
 
 
-def load_data(name, data_path):
-    if name == 'IP':
-        data = sio.loadmat(os.path.join(data_path, 'IndianPines_hsi.mat'))['indian_pines_corrected']
-        labels = sio.loadmat(os.path.join(data_path, 'IndianPines_gt.mat'))['indian_pines_gt']
-    elif name == 'SA':
-        data = sio.loadmat(os.path.join(data_path, 'Salinas_hsi.mat'))['salinas_corrected']
-        labels = sio.loadmat(os.path.join(data_path, 'Salinas_gt.mat'))['salinas_gt']
-    elif name == 'PU':
-        data = sio.loadmat(os.path.join(data_path, 'PaviaU_hsi.mat'))['paviaU']
-        labels = sio.loadmat(os.path.join(data_path, 'PaviaU_gt.mat'))['paviaU_gt']
-    else:
-        raise ValueError('Unknown dataset name: ' + name)
+def _auto_mat_key(mat_dict, fallback=None):
+    if fallback and fallback in mat_dict:
+        return fallback
+    for k in mat_dict.keys():
+        if not k.startswith('__'):
+            return k
+    raise ValueError("未在 .mat 文件中找到有效数据字段")
+
+
+def load_data(name, data_path, data_file=None, gt_file=None, data_key=None, gt_key=None):
+    if name not in REQUIRED_FILES:
+        raise ValueError('当前仅支持预置数据集 IP/SA/PU')
+    data_file = REQUIRED_FILES[name][0]
+    gt_file = REQUIRED_FILES[name][1]
+    default_data_key, default_gt_key = DATA_KEYS[name]
+    data_mat = sio.loadmat(os.path.join(data_path, data_file))
+    gt_mat = sio.loadmat(os.path.join(data_path, gt_file))
+    data_key = _auto_mat_key(data_mat, data_key or default_data_key)
+    gt_key = _auto_mat_key(gt_mat, gt_key or default_gt_key)
+    data = data_mat[data_key]
+    labels = gt_mat[gt_key]
     return data.astype(np.float32), labels.astype(np.int64)
 
 

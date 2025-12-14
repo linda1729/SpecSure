@@ -40,10 +40,19 @@ def train(args):
     window_size = args.window_size
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
-    verify_dataset_files(dataset, data_path)
+    verify_dataset_files(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file)
     
     #加载基本数据以及数据的预处理
-    X, y, K, output_units = load_dataset(dataset, data_path, args.pca_components_ip, args.pca_components_other)
+    X, y, K, output_units = load_dataset(
+        dataset,
+        data_path,
+        args.pca_components_ip,
+        args.pca_components_other,
+        data_file=args.data_file,
+        gt_file=args.gt_file,
+        data_key=args.data_key,
+        gt_key=args.gt_key,
+    )
     X_pca, pca = apply_pca(X, num_components=K)
     X_cubes, y_cubes = create_image_cubes(X_pca, y, window_size=window_size)
     X_train, X_test, y_train, y_test = train_test_split(X_cubes, y_cubes, test_size=test_ratio, random_state=345, stratify=y_cubes)
@@ -168,10 +177,10 @@ def test(args):
     dataset_name = dataset
     window_size = args.window_size
     data_path = resolve_data_path(args)
-    verify_dataset_files(dataset, data_path)
+    verify_dataset_files(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file)
     dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     # 加载原始数据
-    X, y = load_data(dataset, data_path)
+    X, y = load_data(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file, data_key=args.data_key, gt_key=args.gt_key)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     checkpoint = load_checkpoint(args.input_model_path, device)
     K = checkpoint.get('K', (args.pca_components_ip if dataset == 'IP' else args.pca_components_other))
@@ -216,7 +225,7 @@ def test(args):
 
 def main():
     parser = argparse.ArgumentParser(description='HybridSN PyTorch Implementation')
-    parser.add_argument('--dataset', type=str, default='IP', choices=['IP','SA','PU'])
+    parser.add_argument('--dataset', type=str, default='IP')
     parser.add_argument('--test_ratio', type=float, default=0.3)
     parser.add_argument('--window_size', type=int, default=25)
     parser.add_argument('--pca_components_ip', type=int, default=30)
@@ -230,7 +239,11 @@ def main():
     cnn_dir = os.path.dirname(os.path.dirname(script_dir))
     
     parser.add_argument('--model_path', type=str, default=None, help='训练模式下保存最佳模型的路径')
-    parser.add_argument('--data_path', type=str, default=None, help='数据目录路径，默认 models/cnn/data/[Dataset]')
+    parser.add_argument('--data_path', type=str, default=None, help='数据目录路径，默认 data/[Dataset]')
+    parser.add_argument('--data_key', type=str, default=None, help='HSI 变量名（自定义数据集需要）')
+    parser.add_argument('--gt_key', type=str, default=None, help='GT 变量名（自定义数据集需要）')
+    parser.add_argument('--data_file', type=str, default=None, help='HSI 文件名（自定义数据集需要）')
+    parser.add_argument('--gt_file', type=str, default=None, help='GT 文件名（自定义数据集需要）')
     parser.add_argument('--inference_only', action='store_true', help='只执行推理，不进行训练')
     parser.add_argument('--input_model_path', type=str, default=None, help='推理模式下加载模型的路径')
     parser.add_argument('--output_prediction_path', type=str, default=None, help='推理结果图片保存路径')
@@ -256,6 +269,8 @@ def main():
     if args.inference_only:
         if args.input_model_path is None:
             args.input_model_path = args.model_path
+        if not os.path.isfile(args.input_model_path):
+            raise FileNotFoundError(f"推理模式需要已训练模型，未找到: {args.input_model_path}")
         test(args)
     else:
         train(args)

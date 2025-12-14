@@ -79,8 +79,8 @@ def _resolve_base_paths(args: argparse.Namespace) -> Dict[str, Path]:
     """
     自动推断项目根目录，以及 SVM 的 data / 输出目录。
 
-    默认从 models/svm/data 读取 .mat 数据。
-    如需复用 CNN 的 data，可通过 --data_path 指定为 models/cnn/data。
+    默认从项目根目录 data/ 读取 .mat 数据。
+    如需自定义路径，可通过 --data_path 指向任意包含 IndianPines/Salinas/PaviaU 子目录的目录。
     """
     this_file = Path(__file__).resolve()
 
@@ -102,9 +102,10 @@ def _resolve_base_paths(args: argparse.Namespace) -> Dict[str, Path]:
     if args.data_path is not None:
         data_root = Path(args.data_path)
     else:
-        # ✅ 默认使用 SVM 自己的 data 目录
-        data_root = svm_root / "data"
+        # 默认指向项目根目录 data，便于 CNN / SVM 共用一套数据
+        data_root = project_root / "data"
 
+    data_root = data_root.expanduser().resolve()
     trained_root = svm_root / "trained_models" / "SVM"
     reports_root = svm_root / "reports" / "SVM"
     vis_root = svm_root / "visualizations" / "SVM"
@@ -131,7 +132,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SVM for Hyperspectral Image Classification")
 
     # 和 CNN 一致的参数
-    parser.add_argument("--dataset", type=str, required=True, choices=["IP", "SA", "PU"], help="数据集代号")
+    parser.add_argument("--dataset", type=str, required=True, help="数据集代号（IP/SA/PU 或自定义）")
     parser.add_argument("--test_ratio", type=float, default=0.3, help="测试集比例")
     parser.add_argument("--window_size", type=int, default=25, help="窗口大小（仅用于命名，对 SVM 本身无影响）")
     parser.add_argument("--pca_components_ip", type=int, default=30, help="IndianPines 使用的 PCA 维度")
@@ -139,7 +140,11 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--batch_size", type=int, default=256, help="保持与 CNN 一致，仅用于命名")
     parser.add_argument("--epochs", type=int, default=100, help="保持与 CNN 一致，仅用于命名")
     parser.add_argument("--lr", type=float, default=1e-3, help="保持与 CNN 一致，仅用于命名")
-    parser.add_argument("--data_path", type=str, default=None, help="数据根目录（包含 IndianPines/Salinas/PaviaU 子目录）")
+    parser.add_argument("--data_path", type=str, default=None, help="数据根目录（默认使用项目根 data/，包含子目录）")
+    parser.add_argument("--data_file", type=str, default=None, help="自定义数据集 HSI 文件名")
+    parser.add_argument("--gt_file", type=str, default=None, help="自定义数据集 GT 文件名")
+    parser.add_argument("--data_key", type=str, default=None, help="自定义数据集 HSI 变量名")
+    parser.add_argument("--gt_key", type=str, default=None, help="自定义数据集 GT 变量名")
 
     # SVM 专属参数
     parser.add_argument(
@@ -208,11 +213,16 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     paths = _resolve_base_paths(args)
 
     dataset_code = args.dataset
-    dataset_folder = DATASET_FOLDERS[dataset_code]
+    if dataset_code not in REQUIRED_FILES:
+        raise FileNotFoundError("当前仅支持预置数据集 IP/SA/PU，已移除自定义上传流程")
+    dataset_folder = DATASET_FOLDERS.get(dataset_code, dataset_code)
     hsi_mat_name, gt_mat_name = REQUIRED_FILES[dataset_code]
 
     data_root = paths["data_root"]
-    dataset_dir = data_root / dataset_folder
+    if data_root.name.lower() == dataset_folder.lower():
+        dataset_dir = data_root
+    else:
+        dataset_dir = data_root / dataset_folder
     hsi_path = dataset_dir / hsi_mat_name
     gt_path = dataset_dir / gt_mat_name
 
@@ -221,7 +231,7 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
     print(f"[INFO] GT  路径: {gt_path}")
 
     # 载入 HSI & GT
-    hsi_cube, gt_map = load_hsi_gt(str(hsi_path), str(gt_path))
+    hsi_cube, gt_map = load_hsi_gt(str(hsi_path), str(gt_path), hsi_key=args.data_key, gt_key=args.gt_key)
 
     # 构造有标注的像元样本
     X, y, _ = create_labeled_samples(hsi_cube, gt_map)
@@ -447,11 +457,16 @@ def inference_only(args: argparse.Namespace) -> None:
     paths = _resolve_base_paths(args)
 
     dataset_code = args.dataset
-    dataset_folder = DATASET_FOLDERS[dataset_code]
+    if dataset_code not in REQUIRED_FILES:
+        raise FileNotFoundError("当前仅支持预置数据集 IP/SA/PU，已移除自定义上传流程")
+    dataset_folder = DATASET_FOLDERS.get(dataset_code, dataset_code)
     hsi_mat_name, gt_mat_name = REQUIRED_FILES[dataset_code]
 
     data_root = paths["data_root"]
-    dataset_dir = data_root / dataset_folder
+    if data_root.name.lower() == dataset_folder.lower():
+        dataset_dir = data_root
+    else:
+        dataset_dir = data_root / dataset_folder
     hsi_path = dataset_dir / hsi_mat_name
     gt_path = dataset_dir / gt_mat_name
 
@@ -459,7 +474,7 @@ def inference_only(args: argparse.Namespace) -> None:
     print(f"[INF] HSI 路径: {hsi_path}")
     print(f"[INF] GT  路径: {gt_path}")
 
-    hsi_cube, gt_map = load_hsi_gt(str(hsi_path), str(gt_path))
+    hsi_cube, gt_map = load_hsi_gt(str(hsi_path), str(gt_path), hsi_key=args.data_key, gt_key=args.gt_key)
     X, y, _ = create_labeled_samples(hsi_cube, gt_map)
     num_samples, _ = X.shape
     H, W, C = hsi_cube.shape

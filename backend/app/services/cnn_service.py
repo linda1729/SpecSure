@@ -9,21 +9,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 
 from ..core.config import (
     CNN_DATA_DIR,
     CNN_ROOT,
     DATASET_DEFINITIONS,
-    DATASET_FOLDER_TO_ID,
+    DATASET_SLUG_TO_ID,
     DEFAULT_HYPERPARAMS,
     HYBRID_CODE_DIR,
+    PROJECT_ROOT,
     REPORT_DIR,
     TRAINED_DIR,
     VIS_DIR,
     ensure_cnn_directories,
 )
-from ..schemas import ArtifactItem, ArtifactListing, ArtifactPaths, CnnTrainRequest, DatasetInfo, EvaluationItem, TrainResponse, UploadResponse
+from ..schemas import ArtifactItem, ArtifactListing, ArtifactPaths, CnnTrainRequest, DatasetInfo, EvaluationItem, TrainResponse
 
 router = APIRouter(tags=["cnn"])
 
@@ -55,6 +56,18 @@ class CnnJob:
 
 _JOB_LOCK = threading.Lock()
 _JOBS: Dict[str, CnnJob] = {}
+
+
+def _latest_model_path(dataset: str) -> Optional[Path]:
+    """返回指定数据集下最近训练的模型路径（按修改时间倒序）。"""
+    folder = DATASET_DEFINITIONS[dataset]["folder"]
+    candidates = sorted(TRAINED_DIR.glob(f"{folder}_model_*.pth"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _normalize_path(path_str: str) -> str:
+    """允许反斜杠路径写法，转为 POSIX 风格。"""
+    return path_str.replace("\\", "/")
 
 
 def _append_log(job: CnnJob, line: str) -> None:
@@ -118,10 +131,6 @@ def _job_to_response(job: CnnJob, message: Optional[str] = None) -> TrainRespons
         else:
             msg = "HybridSN 已创建任务"
 
-    metrics = None
-    if job.status == "succeeded" and not job.req.inference_only:
-        metrics = job.metrics
-
     return TrainResponse(
         job_id=job.id,
         status=job.status,
@@ -130,7 +139,7 @@ def _job_to_response(job: CnnJob, message: Optional[str] = None) -> TrainRespons
         dataset=job.req.dataset,
         command=job.command,
         artifacts=job.artifacts,
-        metrics=metrics,
+        metrics=job.metrics if job.status == "succeeded" else None,
         logs_tail=job.logs[-50:],
         message=msg,
         started_at=job.started_at,
@@ -166,8 +175,7 @@ def _execute_job(job: CnnJob) -> None:
             if proc.returncode == 0:
                 job.status = "succeeded"
                 job.progress = 100.0
-                if not job.req.inference_only:
-                    job.metrics = _parse_report(Path(job.artifacts.report_path))
+                job.metrics = _parse_report(Path(job.artifacts.report_path))
             else:
                 job.status = "failed"
                 job.error = f"进程退出码 {proc.returncode}"
@@ -242,17 +250,54 @@ def _artifact_paths_for_params(
     prediction_path: Optional[str] = None,
 ) -> ArtifactPaths:
     folder_name = DATASET_DEFINITIONS[dataset]["folder"]
+    dataset_code = dataset
     suffix = f"pca={k}_window={window_size}_lr={lr}_epochs={epochs}"
 
+    # 模型/报告仍按数据集目录命名，便于与训练脚本默认输出对齐
     model_name = f"{folder_name}_model_{suffix}.pth"
-    report_name = f"{folder_name}_report_{suffix}.txt"
-    confusion_name = f"{folder_name}_confusion_{suffix}.png"
-    prediction_name = f"{folder_name}_prediction_{suffix}.png"
-    gt_name = f"{folder_name}_groundtruth_{suffix}.png"
-    infer_cm_name = f"{folder_name}_confusion_infer_{suffix}.png"
-    pseudocolor_name = f"{folder_name}_pseudocolor_{suffix}.png"
-    classification_name = f"{folder_name}_classification_{suffix}.png"
-    comparison_name = f"{folder_name}_comparison_{suffix}.png"
+    report_candidates = [
+        f"{dataset_code}_report_{suffix}.txt",
+        f"{folder_name}_report_{suffix}.txt",
+    ]
+    confusion_candidates = [
+        f"{dataset_code}_confusion_{suffix}.png",
+        f"{folder_name}_confusion_{suffix}.png",
+    ]
+    prediction_candidates = [
+        f"{dataset_code}_prediction_{suffix}.png",
+        f"{folder_name}_prediction_{suffix}.png",
+    ]
+    gt_candidates = [
+        f"{dataset_code}_groundtruth_{suffix}.png",
+        f"{folder_name}_groundtruth_{suffix}.png",
+        f"{dataset_code}_groundtruth.png",
+        f"{folder_name}_groundtruth.png",
+    ]
+    infer_cm_candidates = [
+        f"{dataset_code}_confusion_infer_{suffix}.png",
+        f"{folder_name}_confusion_infer_{suffix}.png",
+        f"{folder_name}_confusion_infer_pca={k}_window={window_size}.png",
+    ]
+    pseudocolor_candidates = [
+        f"{dataset_code}_pseudocolor_{suffix}.png",
+        f"{folder_name}_pseudocolor_{suffix}.png",
+    ]
+    classification_candidates = [
+        f"{dataset_code}_classification_{suffix}.png",
+        f"{folder_name}_classification_{suffix}.png",
+    ]
+    comparison_candidates = [
+        f"{dataset_code}_comparison_{suffix}.png",
+        f"{folder_name}_comparison_{suffix}.png",
+        f"{dataset_code}_comprasion_{suffix}.png",
+        f"{folder_name}_comprasion_{suffix}.png",
+    ]
+    error_map_candidates = [
+        f"{dataset_code}_error_map_{suffix}.png",
+        f"{folder_name}_error_map_{suffix}.png",
+        f"{dataset_code}_errors_{suffix}.png",
+        f"{folder_name}_errors_{suffix}.png",
+    ]
 
     TRAINED_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,23 +305,27 @@ def _artifact_paths_for_params(
 
     model_path = Path(model_path) if model_path else TRAINED_DIR / model_name
     pca_path = Path(str(model_path) + ".pca.pkl")
-    report_path = REPORT_DIR / report_name
-    confusion_path = VIS_DIR / confusion_name
-    prediction_path = Path(prediction_path) if prediction_path else VIS_DIR / prediction_name
-    gt_path = VIS_DIR / gt_name
-    infer_cm_path = VIS_DIR / infer_cm_name
-    pseudocolor_path = VIS_DIR / pseudocolor_name
-    classification_path = VIS_DIR / classification_name
-    comparison_path = VIS_DIR / comparison_name
 
-    legacy_gt = VIS_DIR / f"{folder_name}_groundtruth.png"
-    if legacy_gt.exists():
-        gt_path = legacy_gt
-    legacy_infer_cm = VIS_DIR / f"{folder_name}_confusion_infer_pca={k}_window={window_size}.png"
-    if legacy_infer_cm.exists():
-        infer_cm_path = legacy_infer_cm
+    def pick_path(base_dir: Path, candidates: list[str], fallback: Optional[str] = None) -> Path:
+        for name in candidates:
+            path = base_dir / name
+            if path.exists():
+                return path
+        if fallback:
+            return base_dir / fallback
+        return base_dir / candidates[0]
 
-    for p in [model_path, pca_path, report_path, confusion_path, prediction_path, gt_path, infer_cm_path, pseudocolor_path, classification_path, comparison_path]:
+    report_path = pick_path(REPORT_DIR, report_candidates)
+    confusion_path = pick_path(VIS_DIR, confusion_candidates)
+    prediction_path_obj = Path(prediction_path) if prediction_path else pick_path(VIS_DIR, prediction_candidates)
+    gt_path = pick_path(VIS_DIR, gt_candidates)
+    infer_cm_path = pick_path(VIS_DIR, infer_cm_candidates, infer_cm_candidates[-1] if infer_cm_candidates else None)
+    pseudocolor_path = pick_path(VIS_DIR, pseudocolor_candidates)
+    classification_path = pick_path(VIS_DIR, classification_candidates)
+    comparison_path = pick_path(VIS_DIR, comparison_candidates)
+    error_map_path = pick_path(VIS_DIR, error_map_candidates)
+
+    for p in [model_path, pca_path, report_path, confusion_path, prediction_path_obj, gt_path, infer_cm_path, pseudocolor_path, classification_path, comparison_path, error_map_path]:
         p.parent.mkdir(parents=True, exist_ok=True)
 
     return ArtifactPaths(
@@ -284,23 +333,25 @@ def _artifact_paths_for_params(
         pca_path=str(pca_path),
         report_path=str(report_path),
         confusion_path=str(confusion_path),
-        prediction_path=str(prediction_path),
+        prediction_path=str(prediction_path_obj),
         groundtruth_path=str(gt_path),
         inference_confusion_path=str(infer_cm_path),
         pseudocolor_path=str(pseudocolor_path),
         classification_path=str(classification_path),
         comparison_path=str(comparison_path),
+        error_map_path=str(error_map_path),
         urls={
             "model": _to_url(model_path),
             "pca": _to_url(pca_path),
             "report": _to_url(report_path),
             "confusion": _to_url(confusion_path),
-            "prediction": _to_url(prediction_path),
+            "prediction": _to_url(prediction_path_obj),
             "groundtruth": _to_url(gt_path),
             "inference_confusion": _to_url(infer_cm_path),
             "pseudocolor": _to_url(pseudocolor_path),
             "classification": _to_url(classification_path),
             "comparison": _to_url(comparison_path),
+            "error_map": _to_url(error_map_path),
         },
     )
 
@@ -342,13 +393,25 @@ def _parse_report(path: Path):
 
 
 def _resolve_model_path(path_str: str) -> Path | None:
-    candidates = [Path(path_str)]
-    if not candidates[0].is_absolute():
-        candidates.append(TRAINED_DIR / path_str)
-        candidates.append(CNN_ROOT / path_str)
+    norm = _normalize_path(path_str)
+    base = Path(norm)
+    candidates = [base]
+    if not base.is_absolute():
+        candidates.extend(
+            [
+                PROJECT_ROOT / norm,
+                TRAINED_DIR / base.name,
+                TRAINED_DIR / norm,
+                CNN_ROOT / norm,
+            ]
+        )
     for cand in candidates:
-        if cand.exists():
-            return cand
+        try:
+            real = cand.resolve()
+        except Exception:
+            real = cand
+        if real.exists():
+            return real
     return None
 
 
@@ -373,8 +436,6 @@ def _build_command(req: CnnTrainRequest, artifacts: ArtifactPaths) -> List[str]:
         "--lr",
         str(req.lr),
     ]
-    if req.data_path:
-        base_cmd += ["--data_path", req.data_path]
 
     if req.inference_only:
         base_cmd.append("--inference_only")
@@ -445,8 +506,8 @@ def _list_evaluations() -> List[EvaluationItem]:
         match = REPORT_NAME_PATTERN.match(report_file.name)
         if not match:
             continue
-        folder_name = match.group("dataset")
-        dataset_id = DATASET_FOLDER_TO_ID.get(folder_name)
+        dataset_slug = match.group("dataset")
+        dataset_id = DATASET_SLUG_TO_ID.get(dataset_slug.lower())
         if not dataset_id:
             continue
         k = _safe_int(match.group("pca"))
@@ -469,6 +530,7 @@ def _list_evaluations() -> List[EvaluationItem]:
             except Exception:
                 continue
         items[key] = EvaluationItem(
+            model="cnn",
             dataset=dataset_id,
             dataset_name=DATASET_DEFINITIONS[dataset_id]["name"],
             window_size=window_size,
@@ -502,28 +564,6 @@ async def list_datasets():
     return [_dataset_info(k) for k in DATASET_DEFINITIONS]
 
 
-@router.post("/datasets/upload", response_model=UploadResponse)
-async def upload_dataset(
-    dataset: str = Form(..., description="IP/SA/PU"),
-    hsi_file: UploadFile = File(..., description="高光谱 .mat"),
-    gt_file: UploadFile = File(..., description="GT .mat"),
-):
-    dataset = dataset.upper()
-    if dataset not in DATASET_DEFINITIONS:
-        raise HTTPException(status_code=400, detail="仅支持 IP / SA / PU")
-    if not hsi_file.filename.lower().endswith(".mat") or not gt_file.filename.lower().endswith(".mat"):
-        raise HTTPException(status_code=400, detail="仅支持 .mat 文件")
-    ensure_cnn_directories()
-    cfg = DATASET_DEFINITIONS[dataset]
-    folder = CNN_DATA_DIR / cfg["folder"]
-    folder.mkdir(parents=True, exist_ok=True)
-    data_path = folder / cfg["data_file"]
-    gt_path = folder / cfg["gt_file"]
-    data_path.write_bytes(await hsi_file.read())
-    gt_path.write_bytes(await gt_file.read())
-    return UploadResponse(dataset=_dataset_info(dataset))
-
-
 @router.get("/defaults")
 async def defaults():
     return {
@@ -549,12 +589,42 @@ async def evaluations():
 async def train(req: CnnTrainRequest):
     ensure_cnn_directories()
     if req.dataset not in DATASET_DEFINITIONS:
-        raise HTTPException(status_code=400, detail="仅支持 IP / SA / PU 数据集")
+        raise HTTPException(status_code=400, detail="仅支持 IP / SA / PU 预置数据集")
     info = _dataset_info(req.dataset)
-    if not info.ready and not req.data_path:
-        raise HTTPException(status_code=400, detail="数据文件未就绪，请先上传对应 .mat 或传入 data_path")
+    if not info.ready:
+        raise HTTPException(
+            status_code=400,
+            detail="数据文件未就绪，请将 .mat 数据放到项目 data/ 对应目录后再试",
+        )
+
+    auto_model = None
+    if req.inference_only:
+        if req.input_model_path:
+            resolved = _resolve_model_path(req.input_model_path)
+            if resolved:
+                req.input_model_path = str(resolved)
+            else:
+                auto_model = _latest_model_path(req.dataset)
+        else:
+            auto_model = _latest_model_path(req.dataset)
+        if auto_model:
+            req.input_model_path = str(auto_model)
 
     artifacts = _artifact_paths(req.dataset, req)
+    if not req.inference_only and not req.model_path and artifacts.model_path:
+        req.model_path = artifacts.model_path
+    if req.inference_only and not req.output_prediction_path and artifacts.prediction_path:
+        req.output_prediction_path = artifacts.prediction_path
+    if req.inference_only:
+        resolved_model = _resolve_model_path(req.input_model_path) if req.input_model_path else None
+        if not resolved_model and auto_model:
+            resolved_model = auto_model
+        if not resolved_model:
+            raise HTTPException(status_code=400, detail="推理模式未找到可用模型，请先训练或检查模型路径")
+        artifacts.model_path = str(resolved_model)
+        artifacts.pca_path = str(Path(str(resolved_model) + ".pca.pkl"))
+        artifacts.urls.model = _to_url(resolved_model)
+        artifacts.urls.pca = _to_url(Path(str(resolved_model) + ".pca.pkl"))
     command = _build_command(req, artifacts)
     mode = "inference_only" if req.inference_only else "train"
     job = _start_job(req, artifacts, command, mode)

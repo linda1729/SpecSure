@@ -21,17 +21,6 @@ models/svm/
 │       ├── utils.py                    # 一些通用工具函数（从 CNN 复用）
 │       └── visualize_results.py        # 混淆矩阵 / 标签图 / Pseudo / 对比图等可视化工具
 │
-├── data/                               # SVM 使用的 .mat 原始数据（与 CNN 同源）
-│   ├── IndianPines/
-│   │   ├── IndianPines_hsi.mat
-│   │   └── IndianPines_gt.mat
-│   ├── PaviaU/
-│   │   ├── PaviaU_hsi.mat
-│   │   └── PaviaU_gt.mat
-│   └── Salinas/
-│       ├── Salinas_hsi.mat
-│       └── Salinas_gt.mat
-│
 ├── trained_models/
 │   └── SVM/
 │       ├── IndianPines_model_pca=30_window=25_lr=0.001_epochs=100.joblib
@@ -75,9 +64,11 @@ models/svm/
         └── PU_comparison_pca=15_window=25_lr=0.001_epochs=100.png
 ````
 
-`train.py` 默认从 `models/svm/data` 读取内置 demo 数据集（IndianPines / Salinas / PaviaU）的 `.mat` 文件，
+> 数据文件统一位于项目根目录 `data/[Dataset]/`，CNN / SVM 共用，同步维护。
+
+`train.py` 默认从根目录 `data` 读取内置 demo 数据集（IndianPines / Salinas / PaviaU）的 `.mat` 文件，
 用于离线训练基线模型和生成配套可视化；前端用户上传数据时，走的是 `backend/app/services/svm_service.py`，
-直接使用上传的 .mat 文件，不依赖 `models/cnn/data` 或 `models/svm/data`。
+直接使用上传的 .mat 文件，同样落到根目录 `data`。
 
 ---
 
@@ -161,7 +152,7 @@ SA_comparison_pca={K}_window={window_size}_lr={lr}_epochs={epochs}.png
 
 1. **数据来源一致**
 
-   * CNN / SVM 都使用同一套 IndianPines / Salinas / PaviaU 高光谱数据，只是物理路径分属 `models/cnn/data` 与 `models/svm/data` 两套目录，内容保持一致。
+   * CNN / SVM 都使用同一套 IndianPines / Salinas / PaviaU 高光谱数据，统一存放在项目根目录 `data/`。
 
 2. **训练 CLI 形态一致**
 

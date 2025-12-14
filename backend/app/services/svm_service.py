@@ -1,329 +1,648 @@
-from __future__ import annotations
-
-from io import BytesIO
+import os
+import re
+import subprocess
+import sys
+import threading
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Optional
 
-import matplotlib.pyplot as plt
-import numpy as np
-from fastapi import APIRouter, File, UploadFile
-from scipy.io import loadmat
-from sklearn.metrics import ConfusionMatrixDisplay
+from fastapi import APIRouter, HTTPException
 
-from ..core.config import DATA_ROOT
-from ..models.schemas import SVMRunResponse
-from models.svm.code.SVM.model import SVMClassifier, SVMConfig
-from models.svm.code.SVM.prepare_data import build_samples_for_svm
+from ..core.config import (
+    DATASET_DEFINITIONS,
+    DATASET_SLUG_TO_ID,
+    PROJECT_ROOT,
+    SVM_CODE_DIR,
+    SVM_DATA_DIR,
+    SVM_REPORT_DIR,
+    SVM_ROOT,
+    SVM_TRAINED_DIR,
+    SVM_VIS_DIR,
+    ensure_svm_directories,
+)
+from ..schemas import (
+    ArtifactItem,
+    ArtifactListing,
+    ArtifactPaths,
+    DatasetInfo,
+    EvaluationItem,
+    SvmTrainRequest,
+    SvmTrainResponse,
+)
 
-# FastAPI 路由
 router = APIRouter(prefix="/api/svm", tags=["svm"])
 
-# ===== 1. 路径配置 =====
-
-# 当前文件：backend/app/services/svm_service.py
-# repo 根目录 = backend 的上一级
-ROOT_DIR = Path(__file__).resolve().parents[2].parent
-
-# 所有可视化图片统一放到 DATA_ROOT/svm/ 下，让 /static/svm/... 能访问
-VIS_ROOT = DATA_ROOT / "svm"
-
-# 文本报告统一放到 models/svm/reports/SVM 下，和 CNN 的结构对齐
-REPORT_ROOT = ROOT_DIR / "models" / "svm" / "reports" / "SVM"
+REPORT_NAME_PATTERN = re.compile(
+    r"(?P<dataset>[A-Za-z0-9]+)_report_pca=(?P<pca>[^_]+)_window=(?P<window>[^_]+)_lr=(?P<lr>[^_]+)_epochs=(?P<epochs>[^.]+)\.txt",
+    re.IGNORECASE,
+)
+MAX_LOG_LINES = 300
 
 
-# ===== 2. 可视化工具函数 =====
-
-def _normalize_band(band: np.ndarray) -> np.ndarray:
-    band = band.astype(np.float32)
-    band = band - band.min()
-    max_val = band.max()
-    if max_val > 0:
-        band = band / max_val
-    return band
-
-
-def save_rgb_image(hsi_cube: np.ndarray, rgb_bands: Tuple[int, int, int], out_path: Path) -> None:
-    """从高光谱立方体中选三条波段，保存成伪彩色 RGB 图。"""
-    r_idx, g_idx, b_idx = rgb_bands
-    H, W, C = hsi_cube.shape
-    assert 0 <= r_idx < C and 0 <= g_idx < C and 0 <= b_idx < C
-
-    r = _normalize_band(hsi_cube[:, :, r_idx])
-    g = _normalize_band(hsi_cube[:, :, g_idx])
-    b = _normalize_band(hsi_cube[:, :, b_idx])
-    rgb = np.stack([r, g, b], axis=-1)
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.figure(figsize=(5, 5))
-    plt.imshow(rgb)
-    plt.axis("off")
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0)
-    plt.close()
+@dataclass
+class SvmJob:
+    id: str
+    req: SvmTrainRequest
+    artifacts: ArtifactPaths
+    command: List[str]
+    mode: str
+    status: str = "pending"
+    progress: float = 0.0
+    logs: List[str] = field(default_factory=list)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    pid: Optional[int] = None
+    error: Optional[str] = None
+    metrics: Optional[Dict[str, float]] = None
+    return_code: Optional[int] = None
 
 
-def save_label_map(label_map: np.ndarray, out_path: Path, title: str) -> None:
-    """保存标签或预测标签的伪彩色图。"""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    vmin = label_map.min()
-    vmax = label_map.max()
-
-    plt.figure(figsize=(5, 5))
-    im = plt.imshow(label_map, cmap="tab20", vmin=vmin, vmax=vmax)
-    plt.title(title)
-    plt.axis("off")
-    plt.colorbar(im, fraction=0.046, pad=0.04)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close()
+_JOB_LOCK = threading.Lock()
+_JOBS: Dict[str, SvmJob] = {}
 
 
-def save_error_map(gt_map: np.ndarray, pred_map: np.ndarray, out_path: Path) -> None:
-    """保存正确/错误分类掩膜图：绿色=预测正确，红色=预测错误。"""
-    assert gt_map.shape == pred_map.shape
-
-    H, W = gt_map.shape
-    img = np.zeros((H, W, 3), dtype=np.float32)
-
-    correct = (gt_map == pred_map) & (gt_map > 0)
-    error = (gt_map != pred_map) & (gt_map > 0)
-
-    img[correct] = [0.0, 1.0, 0.0]  # 绿
-    img[error] = [1.0, 0.0, 0.0]    # 红
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.figure(figsize=(5, 5))
-    plt.imshow(img)
-    plt.title("Correct (green) vs Error (red)")
-    plt.axis("off")
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0)
-    plt.close()
+def _latest_model_path(dataset: str) -> Optional[Path]:
+    """返回指定数据集下最近训练的 SVM 模型路径（按修改时间倒序）。"""
+    folder = DATASET_DEFINITIONS[dataset]["folder"]
+    candidates = sorted(SVM_TRAINED_DIR.glob(f"{folder}_model_*.joblib"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
 
 
-def save_confusion_matrix(cm: np.ndarray, out_path: Path, title: str) -> None:
-    """把混淆矩阵画成 PNG，风格和 CNN 一致。"""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cm = np.asarray(cm)
-    n_classes = cm.shape[0]
-    labels = np.arange(1, n_classes + 1)
-
-    fig, ax = plt.subplots(figsize=(6, 5))
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
-    disp.plot(include_values=True, cmap="Blues", ax=ax, colorbar=True)
-    ax.set_xlabel("Predicted label")
-    ax.set_ylabel("True label")
-    ax.set_title(title)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=300)
-    plt.close(fig)
-
-
-def _build_static_url(file_path: Path) -> str:
-    """
-    把 DATA_ROOT/svm/... 这样的路径，转成 /static/svm/... URL。
-    """
-    rel = file_path.relative_to(DATA_ROOT)  # e.g. svm/IndianPines/hsi_rgb.png
-    return f"/static/{rel.as_posix()}"
+def _resolve_model_path(path_str: str) -> Optional[Path]:
+    norm = path_str.replace("\\", "/")
+    base = Path(norm)
+    candidates = [base]
+    if not base.is_absolute():
+        candidates.extend(
+            [
+                PROJECT_ROOT / norm,
+                SVM_TRAINED_DIR / base.name,
+                SVM_TRAINED_DIR / norm,
+                SVM_ROOT / norm,
+            ]
+        )
+    for cand in candidates:
+        try:
+            real = cand.resolve()
+        except Exception:
+            real = cand
+        if real.exists():
+            return real
+    return None
 
 
-# ===== 3. 真正跑 SVM 的函数（被 /api/svm/upload 和 /api/models/svm/run 共用） =====
-
-def _guess_dataset_name(hsi_key: str, fallback: str = "custom_dataset") -> str:
-    """根据 .mat 里的 hsi_key 大致猜一下数据集名字，方便落盘命名。"""
-    key = hsi_key.lower()
-    if "indian" in key:
-        return "indian_pines"
-    if "pavia" in key:
-        return "paviaU"
-    if "salinas" in key:
-        return "salinas"
-    return fallback
+def _append_log(job: SvmJob, line: str) -> None:
+    line = (line or "").rstrip()
+    if not line:
+        return
+    job.logs.append(line)
+    if len(job.logs) > MAX_LOG_LINES:
+        job.logs = job.logs[-MAX_LOG_LINES:]
 
 
-def run_svm_on_uploaded_data(
-    hsi_data: BytesIO,
-    gt_data: BytesIO,
-    hsi_key: str,
-    gt_key: str,
-    kernel: str,
-    C: float,
-    gamma: str | float,
-    degree: int,
-    test_size: float,
-    random_state: int,
-    save_model: bool,
-    dataset_name: str | None = None,
-) -> dict:
-    """
-    使用给定的 HSI + GT 数据跑一遍 SVM：
-    - 训练 / 评估
-    - 生成 5 张图：RGB、GT、Pred、Error、Confusion
-    - 写一份 txt 报告到 models/svm/reports/SVM
-    - 返回和 CNN 相同风格的 JSON 结果
-    """
-    # 读取 .mat
-    hsi_mat = loadmat(hsi_data)
-    gt_mat = loadmat(gt_data)
+def _update_progress(job: SvmJob, line: str) -> None:
+    if not line:
+        return
+    lower = line.lower()
+    if "saving model" in lower or "report saved" in lower:
+        job.progress = max(job.progress, 90.0)
+    if "done" in lower or "complete" in lower:
+        job.progress = max(job.progress, 95.0)
 
-    hsi_cube = hsi_mat[hsi_key]  # (H, W, C)
-    gt_map = gt_mat[gt_key]      # (H, W)
 
-    # 提取有标注像素
-    X, y = build_samples_for_svm(hsi_cube, gt_map)
+def _get_job(job_id: str) -> Optional[SvmJob]:
+    with _JOB_LOCK:
+        return _JOBS.get(job_id)
 
-    print(f"[INFO] 有标注的像素数量: {X.shape[0]}")
-    print(f"[INFO] 每个像素的光谱维度: {X.shape[1]}")
 
-    # SVM 配置
-    gamma_val = gamma
+def _start_job(req: SvmTrainRequest, artifacts: ArtifactPaths, command: List[str], mode: str) -> SvmJob:
+    job_id = uuid.uuid4().hex
+    job = SvmJob(
+        id=job_id,
+        req=req,
+        artifacts=artifacts,
+        command=command,
+        mode=mode,
+        status="pending",
+        progress=1.0,
+    )
+    with _JOB_LOCK:
+        _JOBS[job_id] = job
+
+    thread = threading.Thread(target=_execute_job, args=(job,), daemon=True)
+    thread.start()
+    return job
+
+
+def _job_to_response(job: SvmJob, message: Optional[str] = None) -> SvmTrainResponse:
+    msg = message
+    if msg is None:
+        if job.error:
+            msg = job.error
+        elif job.status == "succeeded":
+            msg = "SVM 运行完成"
+        elif job.status == "failed":
+            msg = "SVM 运行失败"
+        elif job.status == "running":
+            msg = "SVM 运行中..."
+        else:
+            msg = "SVM 任务已创建"
+
+    return SvmTrainResponse(
+        job_id=job.id,
+        status=job.status,
+        progress=round(job.progress, 2),
+        mode=job.mode,
+        dataset=job.req.dataset,
+        command=job.command,
+        artifacts=job.artifacts,
+        metrics=job.metrics if job.status == "succeeded" else None,
+        logs_tail=job.logs[-50:],
+        message=msg,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        pid=job.pid,
+        error=job.error,
+        class_names=_read_class_names(job.req.dataset),
+    )
+
+
+def _execute_job(job: SvmJob) -> None:
+    job.status = "running"
+    job.started_at = datetime.utcnow()
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
     try:
-        gamma_val = float(gamma)
+        with subprocess.Popen(
+            job.command,
+            cwd=SVM_CODE_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        ) as proc:
+            job.pid = proc.pid
+            _append_log(job, f"[PID {proc.pid}] SVM 任务已启动")
+            for raw in proc.stdout or []:
+                _append_log(job, raw)
+                _update_progress(job, raw)
+            proc.wait()
+            job.return_code = proc.returncode
+            if proc.returncode == 0:
+                job.status = "succeeded"
+                job.progress = 100.0
+                job.metrics = _parse_report(Path(job.artifacts.report_path))
+            else:
+                job.status = "failed"
+                job.error = f"进程退出码 {proc.returncode}"
+    except Exception as exc:  # pragma: no cover
+        job.status = "failed"
+        job.error = str(exc)
+        _append_log(job, f"[ERROR] {exc}")
+    finally:
+        job.finished_at = datetime.utcnow()
+
+
+def _read_class_names(dataset_id: str) -> Optional[Dict[int, str]]:
+    cfg = DATASET_DEFINITIONS[dataset_id]
+    csv_path = SVM_DATA_DIR / cfg["folder"] / f"{cfg['folder']}.CSV"
+    if not csv_path.exists():
+        return None
+    mapping: Dict[int, str] = {}
+    try:
+        with csv_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                parts = [p.strip() for p in line.split(",")]
+                if not parts or not parts[0]:
+                    continue
+                try:
+                    cid = int(parts[0])
+                except ValueError:
+                    continue
+                name = parts[1] if len(parts) > 1 and parts[1] else str(cid)
+                mapping[cid] = name
+    except Exception:
+        return None
+    return mapping or None
+
+
+def _dataset_info(dataset_id: str) -> DatasetInfo:
+    cfg = DATASET_DEFINITIONS[dataset_id]
+    folder = SVM_DATA_DIR / cfg["folder"]
+    data_path = folder / cfg["data_file"]
+    gt_path = folder / cfg["gt_file"]
+    ready = data_path.exists() and gt_path.exists()
+    class_names = _read_class_names(dataset_id)
+    return DatasetInfo(
+        id=dataset_id,
+        name=cfg["name"],
+        folder=cfg["folder"],
+        data_file=cfg["data_file"],
+        gt_file=cfg["gt_file"],
+        data_key=cfg["data_key"],
+        gt_key=cfg["gt_key"],
+        ready=ready,
+        data_path=str(data_path),
+        gt_path=str(gt_path),
+        class_names=class_names,
+    )
+
+
+def _to_url(path: Path) -> str:
+    try:
+        rel = path.relative_to(SVM_ROOT).as_posix()
+        return f"/svm-static/{rel}"
     except ValueError:
-        # "scale" / "auto" 之类的字符串，保持不变
-        pass
+        return ""
 
-    svm_cfg = SVMConfig(
-        kernel=kernel,
-        C=C,
-        gamma=gamma_val,
-        degree=degree,
-        test_size=test_size,
-        random_state=random_state,
+
+def _artifact_paths_for_params(
+    dataset: str,
+    window_size: int,
+    k: int,
+    lr: float,
+    epochs: int,
+    model_path: Optional[str] = None,
+    prediction_path: Optional[str] = None,
+) -> ArtifactPaths:
+    folder_name = DATASET_DEFINITIONS[dataset]["folder"]
+    dataset_code = dataset
+    suffix = f"pca={k}_window={window_size}_lr={lr}_epochs={epochs}"
+
+    model_name = f"{folder_name}_model_{suffix}.joblib"
+    report_candidates = [
+        f"{folder_name}_report_{suffix}.txt",
+        f"{dataset_code}_report_{suffix}.txt",
+    ]
+    confusion_candidates = [
+        f"{folder_name}_confusion_{suffix}.png",
+        f"{dataset_code}_confusion_{suffix}.png",
+    ]
+    prediction_candidates = [
+        f"{folder_name}_prediction_{suffix}.png",
+        f"{dataset_code}_prediction_{suffix}.png",
+    ]
+    gt_candidates = [
+        f"{folder_name}_groundtruth.png",
+        f"{dataset_code}_groundtruth.png",
+    ]
+    pseudocolor_candidates = [
+        f"{dataset_code}_pseudocolor_{suffix}.png",
+        f"{folder_name}_pseudocolor_{suffix}.png",
+    ]
+    classification_candidates = [
+        f"{dataset_code}_classification_{suffix}.png",
+        f"{folder_name}_classification_{suffix}.png",
+    ]
+    comparison_candidates = [
+        f"{dataset_code}_comparison_{suffix}.png",
+        f"{folder_name}_comparison_{suffix}.png",
+        f"{dataset_code}_comprasion_{suffix}.png",
+        f"{folder_name}_comprasion_{suffix}.png",
+    ]
+    error_map_candidates = [
+        f"{folder_name}_errors_{suffix}.png",
+        f"{dataset_code}_errors_{suffix}.png",
+        f"{folder_name}_error_map_{suffix}.png",
+        f"{dataset_code}_error_map_{suffix}.png",
+    ]
+
+    SVM_TRAINED_DIR.mkdir(parents=True, exist_ok=True)
+    SVM_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    SVM_VIS_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_path_obj = Path(model_path) if model_path else SVM_TRAINED_DIR / model_name
+    pca_path = Path(str(model_path_obj) + ".pca.pkl")
+
+    def pick_path(base_dir: Path, candidates: List[str], fallback: Optional[str] = None) -> Path:
+        for name in candidates:
+            path = base_dir / name
+            if path.exists():
+                return path
+        if fallback:
+            return base_dir / fallback
+        return base_dir / candidates[0]
+
+    report_path = pick_path(SVM_REPORT_DIR, report_candidates)
+    confusion_path = pick_path(SVM_VIS_DIR, confusion_candidates)
+    prediction_path_obj = Path(prediction_path) if prediction_path else pick_path(SVM_VIS_DIR, prediction_candidates)
+    gt_path = pick_path(SVM_VIS_DIR, gt_candidates)
+    pseudocolor_path = pick_path(SVM_VIS_DIR, pseudocolor_candidates)
+    classification_path = pick_path(SVM_VIS_DIR, classification_candidates)
+    comparison_path = pick_path(SVM_VIS_DIR, comparison_candidates)
+    error_map_path = pick_path(SVM_VIS_DIR, error_map_candidates)
+
+    for p in [
+        model_path_obj,
+        pca_path,
+        report_path,
+        confusion_path,
+        prediction_path_obj,
+        gt_path,
+        pseudocolor_path,
+        classification_path,
+        comparison_path,
+        error_map_path,
+    ]:
+        p.parent.mkdir(parents=True, exist_ok=True)
+
+    return ArtifactPaths(
+        model_path=str(model_path_obj),
+        pca_path=str(pca_path),
+        report_path=str(report_path),
+        confusion_path=str(confusion_path),
+        prediction_path=str(prediction_path_obj),
+        groundtruth_path=str(gt_path),
+        pseudocolor_path=str(pseudocolor_path),
+        classification_path=str(classification_path),
+        comparison_path=str(comparison_path),
+        error_map_path=str(error_map_path),
+        urls={
+            "model": _to_url(model_path_obj),
+            "pca": _to_url(pca_path),
+            "report": _to_url(report_path),
+            "confusion": _to_url(confusion_path),
+            "prediction": _to_url(prediction_path_obj),
+            "groundtruth": _to_url(gt_path),
+            "pseudocolor": _to_url(pseudocolor_path),
+            "classification": _to_url(classification_path),
+            "comparison": _to_url(comparison_path),
+            "error_map": _to_url(error_map_path),
+        },
     )
 
-    clf = SVMClassifier(config=svm_cfg)
 
-    # 训练 + 评估（内部会做 train/test 划分）
-    clf.fit(X, y)
-    metrics = clf.evaluate(X, y)
+def _artifact_paths(dataset: str, req: SvmTrainRequest) -> ArtifactPaths:
+    k = req.pca_components_ip if dataset == "IP" else req.pca_components_other
+    return _artifact_paths_for_params(
+        dataset=dataset,
+        window_size=req.window_size,
+        k=k,
+        lr=req.lr,
+        epochs=req.epochs,
+        model_path=req.model_path,
+        prediction_path=req.output_prediction_path,
+    )
 
-    # ===== 3.1 确定数据集名字 & 可视化目录 =====
-    if dataset_name is None:
-        dataset_name = _guess_dataset_name(hsi_key)
 
-    vis_dir = VIS_ROOT / dataset_name
-    vis_dir.mkdir(parents=True, exist_ok=True)
+def _parse_report(path: Path):
+    if not path.exists():
+        return None
+    metrics = {}
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        lower = line.lower()
+        m = re.search(r"([-+]?[0-9]*\\.?[0-9]+)", line)
+        if not m:
+            continue
+        value = float(m.group(1))
+        if "test loss" in lower:
+            metrics["test_loss_percent"] = value
+        elif "test accuracy" in lower:
+            metrics["test_accuracy_percent"] = value
+        elif "kappa" in lower:
+            metrics["kappa_percent"] = value
+        elif "overall accuracy" in lower:
+            metrics["overall_accuracy_percent"] = value
+        elif "average accuracy" in lower:
+            metrics["average_accuracy_percent"] = value
+    return metrics
 
-    hsi_rgb_path = vis_dir / "hsi_rgb.png"
-    gt_path_img = vis_dir / "gt_labels.png"
-    pred_path_img = vis_dir / "svm_pred_labels.png"
-    error_path_img = vis_dir / "svm_errors.png"
-    cm_path = vis_dir / "svm_confusion.png"
 
-    # ===== 3.2 生成各种图片 =====
-    # RGB 图（这里给个默认波段组合，和 IndianPines 配置差不多；你要改也很方便）
-    save_rgb_image(hsi_cube, rgb_bands=(30, 20, 10), out_path=hsi_rgb_path)
+def _build_command(req: SvmTrainRequest, artifacts: ArtifactPaths) -> List[str]:
+    base_cmd = [
+        sys.executable,
+        str(SVM_CODE_DIR / "train.py"),
+        "--dataset",
+        req.dataset,
+        "--test_ratio",
+        str(req.test_ratio),
+        "--window_size",
+        str(req.window_size),
+        "--pca_components_ip",
+        str(req.pca_components_ip),
+        "--pca_components_other",
+        str(req.pca_components_other),
+        "--batch_size",
+        str(req.batch_size),
+        "--epochs",
+        str(req.epochs),
+        "--lr",
+        str(req.lr),
+        "--kernel",
+        req.kernel,
+        "--C",
+        str(req.C),
+        "--gamma",
+        str(req.gamma),
+        "--degree",
+        str(req.degree),
+        "--random_state",
+        str(req.random_state),
+    ]
+    target_model_path = req.model_path or artifacts.model_path
 
-    # GT 标签图
-    save_label_map(gt_map, out_path=gt_path_img, title="Ground Truth")
+    if req.inference_only:
+        base_cmd.append("--inference_only")
+        input_model = req.input_model_path or target_model_path
+        if input_model:
+            base_cmd += ["--input_model_path", input_model]
+        if artifacts.prediction_path:
+            base_cmd += ["--output_prediction_path", artifacts.prediction_path]
+    elif target_model_path:
+        base_cmd += ["--model_path", target_model_path]
+    return base_cmd
 
-    # 整幅图预测 + 预测标签图 + Error 图
-    H, W, C = hsi_cube.shape
-    pred_flat = clf.predict(hsi_cube.reshape(-1, C))
-    pred_map = pred_flat.reshape(H, W)
 
-    save_label_map(pred_map, out_path=pred_path_img, title="SVM Predictions")
-    save_error_map(gt_map, pred_map, out_path=error_path_img)
+def _list_artifacts() -> ArtifactListing:
+    def collect(dir_path: Path, suffixes: tuple[str, ...]) -> List[ArtifactItem]:
+        if not dir_path.exists():
+            return []
+        items: List[ArtifactItem] = []
+        for p in sorted(dir_path.glob("*")):
+            if p.is_file() and p.suffix in suffixes:
+                items.append(ArtifactItem(name=p.name, path=str(p), url=_to_url(p)))
+        return items
 
-    # 混淆矩阵图（用 evaluate 里面算好的 cm）
-    cm = np.asarray(metrics["confusion_matrix"])
-    save_confusion_matrix(cm, out_path=cm_path, title=f"{dataset_name} Confusion (SVM)")
+    def collect_visualizations(dir_path: Path) -> List[ArtifactItem]:
+        if not dir_path.exists():
+            return []
+        seen_keys = set()
+        items: List[ArtifactItem] = []
+        for p in sorted(dir_path.glob("*.png")):
+            if not p.is_file():
+                continue
+            key = p.name.replace("comprasion", "comparison")
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            items.append(ArtifactItem(name=p.name, path=str(p), url=_to_url(p)))
+        return items
 
-    # ===== 3.3 写一份 txt 报告到 models/svm/reports/SVM =====
-    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    report_path = REPORT_ROOT / f"{dataset_name}_svm_report.txt"
+    return ArtifactListing(
+        models=collect(SVM_TRAINED_DIR, (".joblib", ".pkl")),
+        reports=collect(SVM_REPORT_DIR, (".txt",)),
+        visualizations=collect_visualizations(SVM_VIS_DIR),
+    )
 
-    with report_path.open("w", encoding="utf-8") as f:
-        f.write(f"SVM Report - dataset: {dataset_name}\n")
-        f.write("=" * 60 + "\n\n")
-        f.write("Config:\n")
-        f.write(f"  kernel      = {svm_cfg.kernel}\n")
-        f.write(f"  C           = {svm_cfg.C}\n")
-        f.write(f"  gamma       = {svm_cfg.gamma}\n")
-        f.write(f"  degree      = {svm_cfg.degree}\n")
-        f.write(f"  test_size   = {svm_cfg.test_size}\n")
-        f.write(f"  random_state= {svm_cfg.random_state}\n\n")
 
-        f.write(f"Accuracy = {metrics['accuracy']:.4f}\n")
-        f.write(f"Kappa    = {metrics['kappa']:.4f}\n\n")
+def _safe_int(val: str) -> Optional[int]:
+    try:
+        return int(float(val))
+    except Exception:
+        return None
 
-        f.write("Classification report:\n")
-        f.write(metrics["classification_report"])
-        f.write("\n\nConfusion matrix:\n")
-        f.write(np.array2string(cm, separator=" "))
-        f.write("\n")
 
-    print(f"[INFO] SVM 评估报告已保存到: {report_path}")
+def _safe_float(val: str) -> Optional[float]:
+    try:
+        return float(val)
+    except Exception:
+        return None
 
-    # ===== 3.4（可选）保存模型 =====
-    if save_model:
-        model_dir = ROOT_DIR / "models" / "svm" / "trained_models" / "SVM"
-        model_dir.mkdir(parents=True, exist_ok=True)
-        model_path = model_dir / f"{dataset_name}_svm.joblib"
-        clf.save(str(model_path))
-        print(f"[INFO] 模型已保存到: {model_path}")
 
-    # ===== 3.5 返回 JSON，和 CNN 的结构对齐 =====
-    image_paths: Dict[str, str] = {
-        "hsi_rgb": str(hsi_rgb_path),
-        "gt": str(gt_path_img),
-        "pred": str(pred_path_img),
-        "errors": str(error_path_img),
-        "confusion": str(cm_path),
+def _list_evaluations() -> List[EvaluationItem]:
+    ensure_svm_directories()
+    items: Dict[tuple, EvaluationItem] = {}
+    for report_file in sorted(SVM_REPORT_DIR.glob("*.txt")):
+        match = REPORT_NAME_PATTERN.match(report_file.name)
+        if not match:
+            continue
+        dataset_slug = match.group("dataset")
+        dataset_id = DATASET_SLUG_TO_ID.get(dataset_slug.lower())
+        if not dataset_id:
+            continue
+        k = _safe_int(match.group("pca"))
+        window_size = _safe_int(match.group("window"))
+        lr = _safe_float(match.group("lr")) or 0.0
+        epochs = _safe_int(match.group("epochs"))
+        if k is None or window_size is None or epochs is None:
+            continue
+        artifacts = _artifact_paths_for_params(dataset_id, window_size, k, lr, epochs)
+        metrics = _parse_report(report_file)
+        key = (dataset_id, window_size, k, lr, epochs)
+        current = items.get(key)
+        if current:
+            try:
+                new_mtime = report_file.stat().st_mtime
+                old_mtime = Path(current.report_path).stat().st_mtime
+                if new_mtime <= old_mtime:
+                    continue
+            except Exception:
+                continue
+        items[key] = EvaluationItem(
+            model="svm",
+            dataset=dataset_id,
+            dataset_name=DATASET_DEFINITIONS[dataset_id]["name"],
+            window_size=window_size,
+            pca_components=k,
+            lr=lr,
+            epochs=epochs,
+            metrics=metrics,
+            artifacts=artifacts,
+            report_path=str(report_file),
+            report_url=_to_url(report_file),
+            class_names=_read_class_names(dataset_id),
+        )
+    sorted_items = sorted(
+        items.values(),
+        key=lambda x: (
+            x.dataset,
+            -(Path(x.report_path).stat().st_mtime if Path(x.report_path).exists() else 0),
+        ),
+    )
+    latest_per_dataset: Dict[str, EvaluationItem] = {}
+    for item in sorted_items:
+        if item.dataset not in latest_per_dataset:
+            latest_per_dataset[item.dataset] = item
+    return list(latest_per_dataset.values())
+
+
+@router.get("/datasets", response_model=List[DatasetInfo])
+async def list_datasets():
+    ensure_svm_directories()
+    return [_dataset_info(k) for k in DATASET_DEFINITIONS]
+
+
+@router.get("/defaults")
+async def defaults():
+    svm_defaults = {
+        "kernel": "rbf",
+        "C": 10.0,
+        "gamma": "scale",
+        "degree": 3,
+        "random_state": 42,
     }
-    image_urls: Dict[str, str] = {k: _build_static_url(Path(v)) for k, v in image_paths.items()}
-
     return {
-        "dataset": dataset_name,
-        "config": metrics["config"],
-        "accuracy": metrics["accuracy"],
-        "kappa": metrics["kappa"],
-        "confusion_matrix": metrics["confusion_matrix"],
-        "classification_report": metrics["classification_report"],
-        "image_paths": image_paths,
-        "image_urls": image_urls,
+        "datasets": [_dataset_info(k) for k in DATASET_DEFINITIONS],
+        "hyperparams": svm_defaults,
+        "doc": "参考 models/svm/README.md 与 models/svm/code/SVM/train.py",
     }
 
 
-# ===== 4. 暴露给 FastAPI 的上传接口 =====
+@router.get("/artifacts", response_model=ArtifactListing)
+async def artifacts():
+    ensure_svm_directories()
+    return _list_artifacts()
 
-@router.post("/upload", response_model=SVMRunResponse)
-async def upload_svm_data(
-    hsi_file: UploadFile = File(...),
-    gt_file: UploadFile = File(...),
-    hsi_key: str = "indian_pines_corrected",  # 默认为 IndianPines
-    gt_key: str = "indian_pines_gt",          # 默认为 IndianPines
-    kernel: str = "rbf",
-    C: float = 10.0,
-    gamma: str = "scale",
-    degree: int = 3,
-    test_size: float = 0.2,
-    random_state: int = 42,
-    save_model: bool = True,
-):
-    """
-    用户上传 HSI 和 GT 文件，进行 SVM 预测和可视化。
 
-    注意：
-    - 这里只是一个“通用入口”，默认把数据集名字记成 custom_dataset；
-      如果是通过 /api/models/svm/run 走内置数据集，会在上层传 dataset_name，下游会自动区分。
-    """
-    hsi_data = BytesIO(await hsi_file.read())
-    gt_data = BytesIO(await gt_file.read())
+@router.get("/evaluations", response_model=List[EvaluationItem])
+async def evaluations():
+    ensure_svm_directories()
+    return _list_evaluations()
 
-    return run_svm_on_uploaded_data(
-        hsi_data=hsi_data,
-        gt_data=gt_data,
-        hsi_key=hsi_key,
-        gt_key=gt_key,
-        kernel=kernel,
-        C=C,
-        gamma=gamma,
-        degree=degree,
-        test_size=test_size,
-        random_state=random_state,
-        save_model=save_model,
-        dataset_name="custom_dataset",
-    )
+
+@router.post("/train", response_model=SvmTrainResponse)
+async def train(req: SvmTrainRequest):
+    ensure_svm_directories()
+    if req.dataset not in DATASET_DEFINITIONS:
+        raise HTTPException(status_code=400, detail="仅支持 IP / SA / PU 预置数据集")
+    info = _dataset_info(req.dataset)
+    if not info.ready:
+        raise HTTPException(
+            status_code=400,
+            detail="数据文件未就绪，请将 .mat 数据放到项目 data/ 对应目录后再试",
+        )
+
+    auto_model = None
+    if req.inference_only:
+        if req.input_model_path:
+            resolved = _resolve_model_path(req.input_model_path)
+            if resolved:
+                req.input_model_path = str(resolved)
+            else:
+                auto_model = _latest_model_path(req.dataset)
+        else:
+            auto_model = _latest_model_path(req.dataset)
+        if auto_model:
+            req.input_model_path = str(auto_model)
+
+    artifacts = _artifact_paths(req.dataset, req)
+    if not req.inference_only and not req.model_path and artifacts.model_path:
+        req.model_path = artifacts.model_path
+    if req.inference_only and not req.output_prediction_path and artifacts.prediction_path:
+        req.output_prediction_path = artifacts.prediction_path
+    if req.inference_only:
+        resolved_model = _resolve_model_path(req.input_model_path) if req.input_model_path else None
+        if not resolved_model and auto_model:
+            resolved_model = auto_model
+        if not resolved_model:
+            raise HTTPException(status_code=400, detail="推理模式未找到可用模型，请先训练或检查模型路径")
+        artifacts.model_path = str(resolved_model)
+        artifacts.pca_path = str(Path(str(resolved_model) + ".pca.pkl"))
+        artifacts.urls.model = _to_url(resolved_model)
+        artifacts.urls.pca = _to_url(Path(str(resolved_model) + ".pca.pkl"))
+    command = _build_command(req, artifacts)
+    mode = "inference_only" if req.inference_only else "train"
+    job = _start_job(req, artifacts, command, mode)
+    return _job_to_response(job, message="SVM 任务已启动（请留意进度）")
+
+
+@router.get("/train/{job_id}", response_model=SvmTrainResponse)
+async def train_status(job_id: str):
+    job = _get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="未找到该任务")
+    return _job_to_response(job)

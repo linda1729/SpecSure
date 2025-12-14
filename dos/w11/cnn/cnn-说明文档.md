@@ -21,7 +21,7 @@
 - 输入：`.mat` 文件对（HSI + GT），放置到 `data/{Dataset}/` 对应目录。
 - 参数：
   - `dataset`: `IP | SA | PU`
-  - `data_path`（可选）：默认自动定位 `models/cnn/data/{Dataset}`；如自定义路径需传绝对路径。
+  - `data_path`（可选）：默认自动定位项目根 `data/{Dataset}`；如自定义路径需传绝对路径。
 - 输出：文件就绪，无代码产出。
 - 校验：`train_utils.verify_dataset_files(dataset, data_path)` 会检查必需文件是否存在。
 

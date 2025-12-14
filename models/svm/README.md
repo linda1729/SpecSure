@@ -22,11 +22,12 @@ models/svm/
 │       ├── utils.py              # 部分工具函数，从 CNN 复用
 │       └── visualize_results.py  # 混淆矩阵 / 标签图 / Pseudo / 对比图
 │
-├── data/                         # 存放 .mat 原始数据（与 CNN 数据一致）
 ├── trained_models/               # 训练好的 .joblib + .pca.pkl
 ├── reports/                      # 文本报告（OA / AA / Kappa 等）
 └── visualizations/               # PNG 可视化（GT / Prediction / Confusion / Pseudo / Classification / Comparison / Error）
 ````
+
+> 数据集统一放在项目根目录 `data/[Dataset]/` 下，CNN / SVM 共享一套文件。
 
 ---
 
@@ -38,10 +39,10 @@ models/svm/
 * **Pavia University (PaviaU)**
 * **Salinas**
 
-原始 `.mat` 文件统一放在 `models/svm/data/` 目录下：
+原始 `.mat` 文件统一放在项目根 `data/` 目录下，便于 CNN / SVM 共享：
 
 ```text
-models/svm/data/
+data/
 ├── IndianPines/
 │   ├── IndianPines_hsi.mat     # key: indian_pines_corrected
 │   └── IndianPines_gt.mat      # key: indian_pines_gt
@@ -53,19 +54,19 @@ models/svm/data/
     └── Salinas_gt.mat          # key: salinas_gt
 ```
 
-> SVM 训练脚本 `train.py` 会直接读取这些 `.mat` 文件，无需事先生成 `X.npy / y.npy`。
+> SVM 训练脚本 `train.py` 会直接读取这些 `.mat` 文件，无需事先生成 `X.npy / y.npy`。如需生成，也建议输出到 `data/[Dataset]/` 下以保持一致。
 
 `prepare_data.py` 仍保留了一个命令行入口，方便需要时把 `.mat → X.npy / y.npy`：
 
 ```bash
 # 示例：从 Salinas .mat 导出 X/y（可选）
 python -m models.svm.code.SVM.prepare_data \
-  --hsi-path models/svm/data/Salinas/Salinas_hsi.mat \
-  --gt-path  models/svm/data/Salinas/Salinas_gt.mat \
+  --hsi-path data/Salinas/Salinas_hsi.mat \
+  --gt-path  data/Salinas/Salinas_gt.mat \
   --hsi-key  salinas_corrected \
   --gt-key   salinas_gt \
-  --out-x    models/svm/data/Salinas/X.npy \
-  --out-y    models/svm/data/Salinas/y.npy
+  --out-x    data/Salinas/X.npy \
+  --out-y    data/Salinas/y.npy
 ```
 
 ---

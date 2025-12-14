@@ -1,57 +1,38 @@
-# SpecSure 后端 API（HybridSN 接口版）
+# SpecSure 后端 API（CNN + SVM）
 
-所有接口默认前缀 `/api/cnn`，返回 JSON。静态产物通过 `/cnn-static` 直接访问 `models/cnn/` 目录。
+数据集统一放在项目根目录 `./data/[Dataset]/`（IP/SA/PU），CNN 与 SVM 共用。产物静态目录：
+- `/cnn-static` → `models/cnn`
+- `/svm-static` → `models/svm`
+- `/data-static` → `./data`
+
+---
 
 ## 数据集
-- `GET /api/cnn/defaults`：返回默认超参与 IP/SA/PU 数据集状态（文件名、键名、是否就绪）。
-- `GET /api/cnn/datasets`：仅返回数据集状态列表。
-- `POST /api/cnn/datasets/upload`：上传/覆盖 `.mat`，字段：
-  - `dataset`: `IP | SA | PU`
-  - `hsi_file`: 高光谱 `.mat`
-  - `gt_file`: GT `.mat`
-  → `{ "dataset": { id, name, ready, data_file, gt_file, class_names, ... } }`
+- `GET /api/cnn/defaults`：返回 IP/SA/PU 状态 + 默认超参（CNN）。
+- `GET /api/cnn/datasets`、`GET /api/svm/datasets`：查看数据集就绪状态。
+- 不再提供上传接口，请直接将 `.mat` 文件放到项目 `data/[Dataset]/` 目录后刷新。
 
-## 训练 / 推理（HybridSN）
-- `POST /api/cnn/train`
-```jsonc
-{
-  "dataset": "SA",
-  "test_ratio": 0.3,
-  "window_size": 25,
-  "pca_components_ip": 30,
-  "pca_components_other": 15,
-  "batch_size": 256,
-  "epochs": 100,
-  "lr": 0.001,
-  "data_path": null,                 // 可选，自定义数据目录
-  "model_path": null,                // 可选，训练保存路径
-  "inference_only": false,           // true 时仅推理
-  "input_model_path": null,          // 推理必填；留空则使用默认命名
-  "output_prediction_path": null     // 可选，推理输出图路径
-}
-```
-→ `TrainResponse`：
-  - `job_id`: 异步任务 ID（用于轮询）
-  - `status`/`progress`: 任务状态与百分比，`pending/running/succeeded/failed`
-  - `command`: 实际执行的 CLI
-  - `artifacts`: 模型、PCA、报告、可视化的路径与可直接访问的 `url`（含预测/伪彩/分类/对比/混淆图）
-  - `metrics`: 训练评估（从报告解析，推理模式为空）
-  - `class_names`: 若 data 目录下存在 `[Dataset].CSV`，返回标签映射
-  - `logs_tail`: 运行日志尾部
+## 训练 / 推理
+- CNN：`POST /api/cnn/train`（调用 `models/cnn/code/HybridSN/train.py`）
+- SVM：`POST /api/svm/train`（调用 `models/svm/code/SVM/train.py`）
 
-> 实际调用 `models/cnn/code/HybridSN/train.py`，产物命名遵循 `cnn-说明文档.md`。
+参数基本一致：`dataset/test_ratio/window_size/pca_components_*/epochs/lr`，并包含推理模式 `inference_only`、`input_model_path`、`output_prediction_path`。SVM 额外支持 `kernel/C/gamma/degree/random_state`。
 
-- `GET /api/cnn/train/{job_id}`：查询指定任务的最新状态，返回同 `TrainResponse`（用于前端进度条轮询）。***
+返回体 `TrainResponse / SvmTrainResponse`：
+- `job_id`、`status/progress`、`command`、`logs_tail`
+- `artifacts`: 模型/PCA/报告/可视化路径与可访问 `url`（含预测、GT、混淆矩阵、伪彩、分类、对比、错误图等）
+- `metrics`: 从报告解析得到的 Accuracy / Kappa / OA / AA（推理模式如生成报告也会填充）
+- `class_names`: 若 `./data/[Dataset]/[Dataset].CSV` 存在则返回标签映射
+
+进度轮询：`GET /api/cnn/train/{job_id}`、`GET /api/svm/train/{job_id}`
 
 ## 产物列表
-- `GET /api/cnn/artifacts`：列出 `trained_models/HybridSN`、`reports/HybridSN`、`visualizations/HybridSN` 下的文件，含可访问 URL。
+- `GET /api/cnn/artifacts`、`GET /api/svm/artifacts`
 
-## 评估列表
-- `GET /api/cnn/evaluations`：解析 `reports/HybridSN/*.txt` 与可视化命名，返回每组超参对应的指标、可视化路径与类目标签。
-
-## 预留
-- `POST /api/cnn/svm/train`：SVM 入口预留，暂未实现。
+## 评估
+- `GET /api/cnn/evaluations`：仅 CNN 报告解析
+- `GET /api/svm/evaluations`：仅 SVM 报告解析
+- `GET /api/evaluations/summary`：CNN + SVM 最新报告汇总，并给出 Accuracy/Kappa 对比
 
 ## 其他
-- `GET /health`：健康检查。
-- 静态：`/cnn-static/...` 对应 `models/cnn` 下的实际文件，可用于下载模型/报告/图片。***
+- `GET /health`：健康检查

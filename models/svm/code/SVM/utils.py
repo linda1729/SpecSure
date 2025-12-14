@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import numpy as np
 import torch
 import joblib
@@ -44,18 +45,23 @@ DATASET_FOLDERS = {
 
 
 def resolve_data_path(args):
+    if args.dataset not in DATASET_FOLDERS:
+        raise ValueError('当前仅支持预置数据集 IP/SA/PU，已关闭自定义数据集上传')
     if args.data_path is None:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        cnn_dir = os.path.dirname(os.path.dirname(script_dir))
-        data_path = os.path.join(cnn_dir, 'data', DATASET_FOLDERS.get(args.dataset, args.dataset))
+        project_root = Path(__file__).resolve().parents[4]
+        data_path = project_root / "data" / DATASET_FOLDERS[args.dataset]
     else:
-        data_path = os.path.abspath(args.data_path)
-    if not os.path.isdir(data_path):
+        data_path = Path(args.data_path).expanduser()
+        if not data_path.is_absolute():
+            data_path = data_path.resolve()
+    if not data_path.is_dir():
         raise FileNotFoundError(f'数据目录不存在: {data_path}')
-    return data_path
+    return str(data_path)
 
 
 def verify_dataset_files(dataset, data_path):
+    if dataset not in REQUIRED_FILES:
+        raise FileNotFoundError('当前仅支持预置数据集 IP/SA/PU，已关闭自定义数据集上传')
     missing = [f for f in REQUIRED_FILES[dataset] if not os.path.isfile(os.path.join(data_path, f))]
     if missing:
         raise FileNotFoundError(f'下列数据文件未找到于 {data_path}: {missing}')
@@ -117,7 +123,7 @@ def load_data(name, data_path):
         data = sio.loadmat(os.path.join(data_path, 'PaviaU_hsi.mat'))['paviaU']
         labels = sio.loadmat(os.path.join(data_path, 'PaviaU_gt.mat'))['paviaU_gt']
     else:
-        raise ValueError('Unknown dataset name: ' + name)
+        raise ValueError('当前仅支持预置数据集 IP/SA/PU，已移除自定义上传路径')
     return data.astype(np.float32), labels.astype(np.int64)
 
 

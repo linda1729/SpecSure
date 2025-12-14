@@ -53,8 +53,14 @@ def load_hsi_gt(
     hsi_mat = loadmat(hsi_path)
     gt_mat = loadmat(gt_path)
 
-    hsi_key = _auto_key(hsi_mat, hsi_key)
-    gt_key = _auto_key(gt_mat, gt_key)
+    if hsi_key and hsi_key in hsi_mat:
+        pass
+    else:
+        hsi_key = _auto_key(hsi_mat, hsi_key)
+    if gt_key and gt_key in gt_mat:
+        pass
+    else:
+        gt_key = _auto_key(gt_mat, gt_key)
 
     hsi = hsi_mat[hsi_key]
     gt = gt_mat[gt_key]

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SpecSure · HybridSN 接入版</title>
+  <title>SpecSure · CNN + SVM</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="window">
     <div class="titlebar">
-      <div class="title">Coastline Hyperspectral Classification – HybridSN</div>
+      <div class="title">Coastline Hyperspectral Classification – CNN + SVM</div>
       <div class="window-btns">
         <span class="dot yellow"></span>
         <span class="dot green"></span>
@@ -33,36 +33,33 @@
           <div class="view-header">
             <div>
               <p class="eyebrow">STEP 1</p>
-              <h1>数据上传与检查</h1>
+              <h1>数据检查</h1>
             </div>
             <div class="status" id="statusText">等待操作</div>
           </div>
 
           <div class="card">
-            <p class="eyebrow">上传或覆盖 (.mat)</p>
-            <div class="field-row responsive">
-              <label>数据集
-                <select id="uploadDataset"></select>
-              </label>
-              <label>HSI 文件
-                <input type="file" id="hsiFile" accept=".mat" />
-              </label>
-              <label>GT 文件
-                <input type="file" id="gtFile" accept=".mat" />
-              </label>
-              <button id="btnUpload" class="btn primary">上传/覆盖</button>
-              <button id="btnUseDefaults" class="btn ghost" type="button">直接使用默认数据</button>
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">数据准备</p>
+                <h3>仅使用内置 IP / SA / PU</h3>
+                <p class="muted small">将 HSI 与 GT .mat 放到项目 data/[Dataset]/ 目录，命名需与后端定义一致。</p>
+              </div>
+              <button id="btnRefreshDatasets" class="btn ghost">重新检测</button>
             </div>
-            <p class="muted small">文件将保存到 models/cnn/data/[Dataset]/ 下，键名需符合 cnn-说明文档.md。</p>
+            <ul class="muted small">
+              <li>示例：data/IndianPines/IndianPines_hsi.mat 与 IndianPines_gt.mat</li>
+              <li>不再支持网页上传，如需替换请直接覆盖文件后点击“重新检测”。</li>
+              <li>下方卡片会显示文件就绪状态与类标签 CSV。</li>
+            </ul>
           </div>
 
           <div class="card">
             <div class="card-header">
               <div>
-                <p class="eyebrow">默认数据集</p>
+                <p class="eyebrow">数据集状态</p>
                 <h3>IP / SA / PU</h3>
               </div>
-              <button id="btnRefreshDatasets" class="btn ghost">刷新</button>
             </div>
             <div id="datasetCards" class="card-grid"></div>
           </div>
@@ -73,14 +70,14 @@
           <div class="view-header">
             <div>
               <p class="eyebrow">STEP 2</p>
-              <h1>HybridSN 训练与推理</h1>
+              <h1>模型训练与推理</h1>
             </div>
-            <div class="status">参数与模型均按 cnn-说明文档配置</div>
+            <div class="status">CNN HybridSN 与 SVM 分别配置、各自运行</div>
           </div>
 
           <div class="card grid-2">
             <div class="module">
-              <p class="eyebrow">基础参数</p>
+              <p class="eyebrow">CNN · HybridSN 参数</p>
               <div class="field-row responsive">
                 <label>数据集
                   <select id="trainDataset"></select>
@@ -129,21 +126,83 @@
               <div class="actions">
                 <button id="btnFillDefaultModel" class="btn ghost" type="button">填入默认命名路径</button>
               </div>
-              <p class="muted small">推理模式需要选择或填写有效的 .pth；留空则使用当前参数推算的默认路径。</p>
+              <p class="muted small">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card grid-2">
+            <div class="module">
+              <p class="eyebrow">SVM 参数</p>
+              <div class="field-row responsive">
+                <label>核函数
+                  <select id="svmKernel">
+                    <option value="linear">linear</option>
+                    <option value="rbf" selected>rbf</option>
+                    <option value="poly">poly</option>
+                    <option value="sigmoid">sigmoid</option>
+                  </select>
+                </label>
+                <label>C
+                  <input type="number" id="svmC" step="0.1" min="0.001" />
+                </label>
+                <label>Gamma
+                  <input type="text" id="svmGamma" placeholder="scale / auto / 数值" />
+                </label>
+              </div>
+              <div class="field-row responsive">
+                <label>Degree
+                  <input type="number" id="svmDegree" min="1" />
+                </label>
+                <label>随机种子
+                  <input type="number" id="svmRandomState" />
+                </label>
+              </div>
+              <div class="actions">
+                <button id="btnSvmTrain" class="btn primary">训练 + 评估</button>
+                <button id="btnSvmInfer" class="btn ghost">仅推理</button>
+              </div>
+            </div>
+
+            <div class="module">
+              <p class="eyebrow">SVM 推理模型</p>
+              <div class="field-row responsive">
+                <label>已产出模型
+                  <select id="svmModelPathSelect"></select>
+                </label>
+                <label>或手动输入
+                  <input type="text" id="svmModelPathManual" placeholder="绝对或相对路径 (.joblib)" />
+                </label>
+              </div>
+              <div class="actions">
+                <button id="btnFillSvmDefaultModel" class="btn ghost" type="button">填入默认 SVM 模型路径</button>
+              </div>
+              <p class="muted small">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
+            </div>
+          </div>
+
+          <div class="card grid-2">
             <div class="module progress-module">
               <div class="progress-meta">
                 <div>
-                  <p class="eyebrow">运行进度</p>
-                  <div id="progressLabel" class="muted small">等待执行</div>
+                  <p class="eyebrow">CNN 运行进度</p>
+                  <div id="progressLabelCnn" class="muted small">等待执行</div>
                 </div>
-                <div id="progressNumber" class="progress-number">0%</div>
+                <div id="progressNumberCnn" class="progress-number">0%</div>
               </div>
               <div class="progress-bar">
-                <div id="progressFill"></div>
+                <div class="progress-fill" id="progressFillCnn"></div>
+              </div>
+            </div>
+            <div class="module progress-module">
+              <div class="progress-meta">
+                <div>
+                  <p class="eyebrow">SVM 运行进度</p>
+                  <div id="progressLabelSvm" class="muted small">等待执行</div>
+                </div>
+                <div id="progressNumberSvm" class="progress-number">0%</div>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="progressFillSvm"></div>
               </div>
             </div>
           </div>
@@ -153,46 +212,83 @@
             <div id="classNamesBox" class="class-names muted tiny">等待选择数据集...</div>
           </div>
 
-          <div class="card grid-2">
-            <div class="module">
-              <p class="eyebrow">评估指标 / 产物</p>
-              <div id="metricsBox" class="metric-list muted">等待运行...</div>
-              <div class="artifact-links" id="artifactLinks"></div>
-              <div id="runMessage" class="muted"></div>
-            </div>
-            <div class="module">
-              <p class="eyebrow">可视化</p>
-              <div id="previewImages" class="preview-grid">
-                <div>
-                  <p class="muted">预测</p>
-                  <img id="imgPrediction" class="preview-img" alt="prediction" />
+          <div class="card">
+            <div class="eval-grid">
+              <div class="panel">
+                <p class="eyebrow">CNN · HybridSN 结果</p>
+                <div class="metric-list muted" id="metricsBoxCnn">等待运行...</div>
+                <div class="artifact-links" id="artifactLinksCnn"></div>
+                <div id="runMessageCnn" class="muted"></div>
+                <div class="preview-grid">
+                  <div>
+                    <p class="muted">预测</p>
+                    <img id="imgPredictionCnn" class="preview-img" alt="prediction" />
+                  </div>
+                  <div>
+                    <p class="muted">Ground Truth</p>
+                    <img id="imgGTCnn" class="preview-img" alt="ground truth" />
+                  </div>
+                  <div>
+                    <p class="muted">混淆矩阵</p>
+                    <img id="imgConfusionCnn" class="preview-img" alt="confusion" />
+                  </div>
+                  <div>
+                    <p class="muted">伪彩色</p>
+                    <img id="imgPseudoCnn" class="preview-img" alt="pseudo color" />
+                  </div>
+                  <div>
+                    <p class="muted">分类图</p>
+                    <img id="imgClassifyCnn" class="preview-img" alt="classification" />
+                  </div>
+                  <div>
+                    <p class="muted">错误图</p>
+                    <img id="imgErrorCnn" class="preview-img" alt="error map" />
+                  </div>
+                  <div class="wide">
+                    <p class="muted">对比图 (预测 vs GT)</p>
+                    <img id="imgCompareCnn" class="preview-img" alt="comparison" />
+                  </div>
                 </div>
-                <div>
-                  <p class="muted">Ground Truth</p>
-                  <img id="imgGT" class="preview-img" alt="ground truth" />
-                </div>
-                <div>
-                  <p class="muted">混淆矩阵</p>
-                  <img id="imgConfusion" class="preview-img" alt="confusion" />
-                </div>
-                <div>
-                  <p class="muted">推理混淆</p>
-                  <img id="imgInferConfusion" class="preview-img" alt="inference confusion" />
-                </div>
-                <div>
-                  <p class="muted">伪彩色</p>
-                  <img id="imgPseudo" class="preview-img" alt="pseudo color" />
-                </div>
-                <div>
-                  <p class="muted">分类图</p>
-                  <img id="imgClassify" class="preview-img" alt="classification" />
-                </div>
-                <div class="wide">
-                  <p class="muted">对比图 (预测 vs GT)</p>
-                  <img id="imgCompare" class="preview-img" alt="comparison" />
-                </div>
+                <pre id="runLogsCnn" class="log-box small">// CNN 日志尾部</pre>
               </div>
-              <pre id="runLogs" class="log-box small">// 运行日志尾部</pre>
+
+              <div class="panel">
+                <p class="eyebrow">SVM 结果</p>
+                <div class="metric-list muted" id="metricsBoxSvm">等待运行...</div>
+                <div class="artifact-links" id="artifactLinksSvm"></div>
+                <div id="runMessageSvm" class="muted"></div>
+                <div class="preview-grid">
+                  <div>
+                    <p class="muted">预测</p>
+                    <img id="imgPredictionSvm" class="preview-img" alt="prediction" />
+                  </div>
+                  <div>
+                    <p class="muted">Ground Truth</p>
+                    <img id="imgGTSvm" class="preview-img" alt="ground truth" />
+                  </div>
+                  <div>
+                    <p class="muted">混淆矩阵</p>
+                    <img id="imgConfusionSvm" class="preview-img" alt="confusion" />
+                  </div>
+                  <div>
+                    <p class="muted">伪彩色</p>
+                    <img id="imgPseudoSvm" class="preview-img" alt="pseudo color" />
+                  </div>
+                  <div>
+                    <p class="muted">分类图</p>
+                    <img id="imgClassifySvm" class="preview-img" alt="classification" />
+                  </div>
+                  <div>
+                    <p class="muted">错误图</p>
+                    <img id="imgErrorSvm" class="preview-img" alt="error map" />
+                  </div>
+                  <div class="wide">
+                    <p class="muted">对比图 (预测 vs GT)</p>
+                    <img id="imgCompareSvm" class="preview-img" alt="comparison" />
+                  </div>
+                </div>
+                <pre id="runLogsSvm" class="log-box small">// SVM 日志尾部</pre>
+              </div>
             </div>
           </div>
         </section>
@@ -219,6 +315,18 @@
                 <p class="eyebrow">可视化</p>
                 <div id="artifactVisuals" class="list muted"></div>
               </div>
+              <div class="panel">
+                <p class="eyebrow">SVM 模型 / PCA</p>
+                <div id="artifactModelsSvm" class="list muted"></div>
+              </div>
+              <div class="panel">
+                <p class="eyebrow">SVM 报告</p>
+                <div id="artifactReportsSvm" class="list muted"></div>
+              </div>
+              <div class="panel">
+                <p class="eyebrow">SVM 可视化</p>
+                <div id="artifactVisualsSvm" class="list muted"></div>
+              </div>
             </div>
           </div>
         </section>
@@ -230,10 +338,16 @@
               <p class="eyebrow">STEP 3</p>
               <h1>评估指标与可视化</h1>
             </div>
-            <div class="status muted">解析 reports/HybridSN 与 visualizations/HybridSN</div>
+            <div class="status muted">选择数据集查看 CNN + SVM 详细对比</div>
+            <button id="btnRefreshEval" class="btn ghost" type="button">刷新评估</button>
           </div>
           <div class="card">
-            <div id="evaluationList" class="eval-list"></div>
+            <p class="eyebrow">选择数据集</p>
+            <div id="evalButtons" class="eval-buttons"></div>
+          </div>
+          <div class="card">
+            <p class="eyebrow">CNN / SVM 对比详情</p>
+            <div id="evalDetail"></div>
           </div>
         </section>
       </main>

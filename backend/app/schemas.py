@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from datetime import datetime
 
 from pydantic import BaseModel, Field, validator
@@ -18,10 +18,6 @@ class DatasetInfo(BaseModel):
     class_names: Optional[Dict[int, str]] = None
 
 
-class UploadResponse(BaseModel):
-    dataset: DatasetInfo
-
-
 class ArtifactURLs(BaseModel):
     model: Optional[str] = None
     pca: Optional[str] = None
@@ -33,6 +29,7 @@ class ArtifactURLs(BaseModel):
     pseudocolor: Optional[str] = None
     classification: Optional[str] = None
     comparison: Optional[str] = None
+    error_map: Optional[str] = None
 
 
 class ArtifactPaths(BaseModel):
@@ -46,6 +43,7 @@ class ArtifactPaths(BaseModel):
     pseudocolor_path: Optional[str] = None
     classification_path: Optional[str] = None
     comparison_path: Optional[str] = None
+    error_map_path: Optional[str] = None
     urls: ArtifactURLs = ArtifactURLs()
 
 
@@ -58,7 +56,6 @@ class CnnTrainRequest(BaseModel):
     batch_size: int = Field(256, ge=1)
     epochs: int = Field(100, ge=1)
     lr: float = Field(0.001, gt=0)
-    data_path: Optional[str] = None
     model_path: Optional[str] = None
     inference_only: bool = False
     input_model_path: Optional[str] = None
@@ -70,6 +67,49 @@ class CnnTrainRequest(BaseModel):
 
 
 class TrainResponse(BaseModel):
+    job_id: Optional[str] = None
+    status: str = "pending"
+    progress: float = 0.0
+    mode: str
+    dataset: str
+    command: List[str]
+    artifacts: ArtifactPaths
+    metrics: Optional[Dict[str, float]] = None
+    logs_tail: List[str] = []
+    message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    pid: Optional[int] = None
+    error: Optional[str] = None
+    class_names: Optional[Dict[int, str]] = None
+
+
+class SvmTrainRequest(BaseModel):
+    dataset: str
+    test_ratio: float = Field(0.3, ge=0.05, le=0.95)
+    window_size: int = Field(25, ge=5)
+    pca_components_ip: int = Field(30, ge=1)
+    pca_components_other: int = Field(15, ge=1)
+    batch_size: int = Field(256, ge=1)  # 与 CNN 保持命名一致，仅用于命名
+    epochs: int = Field(100, ge=1)
+    lr: float = Field(0.001, gt=0)
+    model_path: Optional[str] = None
+    inference_only: bool = False
+    input_model_path: Optional[str] = None
+    output_prediction_path: Optional[str] = None
+    kernel: str = Field("rbf", pattern="^(linear|rbf|poly|sigmoid)$")
+    C: float = Field(10.0, gt=0)
+    gamma: Union[str, float] = Field("scale")
+    degree: int = Field(3, ge=1)
+    random_state: int = 42
+    save_model: bool = True
+
+    @validator("dataset")
+    def normalize_dataset(cls, v: str) -> str:
+        return v.upper()
+
+
+class SvmTrainResponse(BaseModel):
     job_id: Optional[str] = None
     status: str = "pending"
     progress: float = 0.0
@@ -100,6 +140,7 @@ class ArtifactListing(BaseModel):
 
 
 class EvaluationItem(BaseModel):
+    model: str = "cnn"
     dataset: str
     dataset_name: str
     window_size: int
@@ -111,3 +152,27 @@ class EvaluationItem(BaseModel):
     report_path: Optional[str] = None
     report_url: Optional[str] = None
     class_names: Optional[Dict[int, str]] = None
+
+
+class ComparisonItem(BaseModel):
+    dataset: str
+    dataset_name: str
+    cnn_accuracy: Optional[float] = None
+    svm_accuracy: Optional[float] = None
+    cnn_kappa: Optional[float] = None
+    svm_kappa: Optional[float] = None
+    better: Optional[str] = None
+    cnn_report_url: Optional[str] = None
+    svm_report_url: Optional[str] = None
+    cnn_confusion_url: Optional[str] = None
+    svm_confusion_url: Optional[str] = None
+    cnn_prediction_url: Optional[str] = None
+    svm_prediction_url: Optional[str] = None
+    cnn_error_map_url: Optional[str] = None
+    svm_error_map_url: Optional[str] = None
+
+
+class EvaluationSummary(BaseModel):
+    cnn: List[EvaluationItem] = []
+    svm: List[EvaluationItem] = []
+    comparisons: List[ComparisonItem] = []
