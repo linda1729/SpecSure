@@ -183,13 +183,8 @@ def generate_all_visualizations(pred, gt, X_original, base_path, dataset_name, K
     visualize_classification(pred, gt, cls_path, title=f"{dataset_name} Classification", class_names=class_names)
     cmp_path = os.path.join(base_path, f"{dataset_name}_comparison_{suffix}.png")
     visualize_comparison(pred, gt, cmp_path, title=f"{dataset_name} Prediction vs GT", class_names=class_names)
-    comprasion_path = os.path.join(base_path, f"{dataset_name}_comprasion_{suffix}.png")
     error_path = os.path.join(base_path, f"{dataset_name}_error_map_{suffix}.png")
     save_error_map(gt, pred, error_path, title=f"{dataset_name} Prediction Error Map", class_names=class_names)
-    try:
-        shutil.copyfile(cmp_path, comprasion_path)
-    except Exception:
-        pass
     print(f"已生成可视化产物：")
     print(f"  - 伪彩色: {pc_path}")
     print(f"  - 分类图: {cls_path}")

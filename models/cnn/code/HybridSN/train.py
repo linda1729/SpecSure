@@ -36,7 +36,7 @@ from visualization import (
 
 def train(args):
     dataset = args.dataset
-    dataset_name = dataset
+    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     window_size = args.window_size
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
@@ -174,11 +174,10 @@ def train(args):
 
 def test(args):
     dataset = args.dataset
-    dataset_name = dataset
+    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     window_size = args.window_size
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file)
-    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     # 加载原始数据
     X, y = load_data(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file, data_key=args.data_key, gt_key=args.gt_key)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
