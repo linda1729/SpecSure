@@ -93,8 +93,20 @@ result = predictor.predict(data)
 示例: `Salinas_report_pca=15_window=25_lr=0.001_epochs=100.txt`
 
 ### 可视化文件
+#### spectral像素级图片（显示的更精准）【下面的都是调用matplodlib库画的，不精准但是好看】
 格式: `[Dataset]_prediction_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
 示例: `Salinas_prediction_pca=15_window=25_lr=0.001_epochs=100.png`
+
+格式: `[Dataset]_groudtruth_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+示例: `Salinas_groudtruth_pca=15_window=25_lr=0.001_epochs=100.png`
+#### 伪色彩图
+格式：`[Dataset]_pseudocolor_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 分类图（预测后数据）
+格式：`[Dataset]_classification_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 对比图（预测后数据和gt数据对比）
+格式：`[Dataset]_comprasion_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`
+#### 错误图（预测错误/正确对比）
+格式：`[Dataset]_error_map_pca=[channels]_window=[size]_lr=[rate]_epochs=[num].png`（或 `[Dataset]_errors_...`）
 
 ## 依赖项
 

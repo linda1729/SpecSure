@@ -172,6 +172,13 @@ def test(args):
     if pca is None:
         X_pca, pca = apply_pca(X, num_components=K)
         # 替换原始 X 为 PCA 后数据供后续流程（predict_full_image 会自行 transform，但需要 pca 对象）
+    else:
+        # 检查加载的 PCA 是否与当前数据维度匹配
+        # 如果不匹配（如使用了不同数据集训练的模型），则重新计算 PCA
+        if hasattr(pca, 'n_features_in_') and pca.n_features_in_ != X.shape[1]:
+            print(f'警告: PCA 特征数 ({pca.n_features_in_}) 与当前数据 ({X.shape[1]}) 不匹配')
+            print(f'     正在基于当前数据重新计算 PCA（{K} 个分量）')
+            X_pca, pca = apply_pca(X, num_components=K)
     outputs = predict_full_image(model, X, y, pca, window_size, device)
     
     # 保存可视化
