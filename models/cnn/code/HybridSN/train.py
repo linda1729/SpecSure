@@ -36,7 +36,7 @@ from visualization import (
 
 def train(args):
     dataset = args.dataset
-    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
+    dataset_name = dataset
     window_size = args.window_size
     test_ratio = args.test_ratio
     data_path = resolve_data_path(args)
@@ -76,12 +76,29 @@ def train(args):
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
+    # Loss 曲线数据记录
+    loss_history = {
+        'epochs': [],
+        'train_loss': [],
+        'train_acc': [],
+        'valid_loss': [],
+        'valid_acc': []
+    }
+    
     best_acc = 0.0
     for epoch in range(1, args.epochs + 1):
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, epoch=epoch, total_epochs=args.epochs)
         valid_loss, valid_acc, _, _ = eval_epoch(model, valid_loader, criterion, device)
         scheduler.step()
         print(f'Epoch {epoch:03d}: Train Loss {train_loss:.4f} Acc {train_acc:.4f} | Valid Loss {valid_loss:.4f} Acc {valid_acc:.4f}')
+        
+        # 记录 loss 数据
+        loss_history['epochs'].append(epoch)
+        loss_history['train_loss'].append(float(train_loss))
+        loss_history['train_acc'].append(float(train_acc))
+        loss_history['valid_loss'].append(float(valid_loss))
+        loss_history['valid_acc'].append(float(valid_acc))
+        
         if valid_acc > best_acc:
             best_acc = valid_acc
             save_pca(pca, args.model_path)
@@ -128,7 +145,7 @@ def train(args):
     report_name = f"{dataset_name}_report_{suffix}.txt"
     report_path = os.path.join(report_dir, report_name)
     
-    with open(report_path, 'w') as f:
+    with open(report_path, 'w', encoding='utf-8') as f:
         f.write(f'Test loss (%) {test_loss*100:.4f}\n')
         f.write(f'Test accuracy (%) {test_acc*100:.4f}\n\n')
         f.write(f'Kappa accuracy (%) {kappa*100:.2f}\n')
@@ -137,6 +154,22 @@ def train(args):
         f.write(classification + '\n')
         f.write(str(confusion))
     print(f'Report saved to: {report_path}')
+
+    # 保存 Loss 曲线数据到 JSON
+    import json
+    loss_history['test_loss'] = float(test_loss)
+    loss_history['test_acc'] = float(test_acc)
+    loss_history['kappa'] = float(kappa)
+    loss_history['oa'] = float(oa)
+    loss_history['aa'] = float(aa)
+    loss_history['dataset'] = dataset_name
+    loss_history['model'] = 'CNN'
+    
+    loss_json_name = f"{dataset_name}_loss_history_{suffix}.json"
+    loss_json_path = os.path.join(report_dir, loss_json_name)
+    with open(loss_json_path, 'w', encoding='utf-8') as f:
+        json.dump(loss_history, f, indent=2, ensure_ascii=False)
+    print(f'Loss history saved to: {loss_json_path}')
 
     # 保存混淆矩阵可视化
     cm_dir = os.path.join(cnn_dir, 'visualizations', 'HybridSN')
@@ -174,10 +207,11 @@ def train(args):
 
 def test(args):
     dataset = args.dataset
-    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
+    dataset_name = dataset
     window_size = args.window_size
     data_path = resolve_data_path(args)
     verify_dataset_files(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file)
+    dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     # 加载原始数据
     X, y = load_data(dataset, data_path, data_file=args.data_file, gt_file=args.gt_file, data_key=args.data_key, gt_key=args.gt_key)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

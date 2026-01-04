@@ -70,7 +70,6 @@ def _latest_model_path(dataset: str) -> Optional[Path]:
     candidates = sorted(SVM_TRAINED_DIR.glob(f"{folder}_model_*.joblib"), key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0] if candidates else None
 
-
 def _resolve_model_path(path_str: str) -> Optional[Path]:
     norm = path_str.replace("\\", "/")
     base = Path(norm)
@@ -107,10 +106,67 @@ def _update_progress(job: SvmJob, line: str) -> None:
     if not line:
         return
     lower = line.lower()
-    if "saving model" in lower or "report saved" in lower:
+    
+    # 根据 SVM 训练各阶段的日志更新进度
+    # 阶段1: 数据加载和预处理 (0-15%)
+    if "使用数据集" in line or "hsi 路径" in lower or "gt  路径" in lower:
+        job.progress = max(job.progress, 5.0)
+    if "有标注的像元数量" in line or "总样本数" in line:
+        job.progress = max(job.progress, 8.0)
+    if "训练集:" in line and "样本" in line:
+        job.progress = max(job.progress, 10.0)
+    if "pca 降维" in lower or "特征维度" in line:
+        job.progress = max(job.progress, 12.0)
+    
+    # 阶段2: SVM 训练 (15-50%)
+    if "训练 svm" in lower:
+        job.progress = max(job.progress, 15.0)
+    if "svm 训练通常需要" in lower or "请耐心等待" in lower:
+        job.progress = max(job.progress, 18.0)
+    
+    # 阶段3: 评估完成 (50-60%)
+    if "test loss" in lower or "test accuracy" in lower:
+        job.progress = max(job.progress, 50.0)
+    if "kappa accuracy" in lower or "overall accuracy" in lower:
+        job.progress = max(job.progress, 55.0)
+    
+    # 阶段4: 保存模型和报告 (60-75%)
+    if "[save]" in lower and ("模型" in line or "model" in lower):
+        job.progress = max(job.progress, 60.0)
+    if "[save]" in lower and ("pca" in lower or "scaler" in lower):
+        job.progress = max(job.progress, 65.0)
+    if "[save]" in lower and ("报告" in line or "report" in lower):
+        job.progress = max(job.progress, 70.0)
+    
+    # 阶段5: Learning Curve 计算 (70-85%)
+    if "learning curve" in lower or "正在计算" in line:
+        job.progress = max(job.progress, 72.0)
+    # 解析训练比例进度 (如: "训练比例 10%", "训练比例 50%")
+    import re
+    ratio_match = re.search(r'训练比例\s*(\d+)%', line)
+    if ratio_match:
+        ratio = int(ratio_match.group(1))
+        # 映射 10%-100% 到进度 72%-82%
+        curve_progress = 72.0 + (ratio / 100.0) * 10.0
+        job.progress = max(job.progress, curve_progress)
+    if "[save]" in lower and "loss" in lower:
+        job.progress = max(job.progress, 85.0)
+    
+    # 阶段6: 可视化 (85-95%)
+    if "混淆矩阵" in line or "confusion" in lower:
+        job.progress = max(job.progress, 88.0)
+    if "可视化" in line or "visualization" in lower:
         job.progress = max(job.progress, 90.0)
-    if "done" in lower or "complete" in lower:
+    if "groundtruth" in lower or "prediction" in lower:
+        job.progress = max(job.progress, 92.0)
+    
+    # 完成标志
+    if "done" in lower or "complete" in lower or "全部完成" in line:
         job.progress = max(job.progress, 95.0)
+    
+    # 兜底：确保运行中至少有 5% 进度
+    if job.status == "running" and job.progress < 5.0:
+        job.progress = 5.0
 
 
 def _get_job(job_id: str) -> Optional[SvmJob]:
@@ -395,7 +451,8 @@ def _parse_report(path: Path):
     metrics = {}
     for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
         lower = line.lower()
-        m = re.search(r"([-+]?[0-9]*\\.?[0-9]+)", line)
+        # 修复正则: \. 在 raw string 中匹配点号
+        m = re.search(r"([-+]?[0-9]*\.?[0-9]+)", line)
         if not m:
             continue
         value = float(m.group(1))
@@ -418,6 +475,8 @@ def _build_command(req: SvmTrainRequest, artifacts: ArtifactPaths) -> List[str]:
         str(SVM_CODE_DIR / "train.py"),
         "--dataset",
         req.dataset,
+        "--data_path",
+        str(SVM_DATA_DIR),
         "--test_ratio",
         str(req.test_ratio),
         "--window_size",
@@ -484,7 +543,7 @@ def _list_artifacts() -> ArtifactListing:
 
     return ArtifactListing(
         models=collect(SVM_TRAINED_DIR, (".joblib", ".pkl")),
-        reports=collect(SVM_REPORT_DIR, (".txt",)),
+        reports=collect(SVM_REPORT_DIR, (".txt", ".json")),
         visualizations=collect_visualizations(SVM_VIS_DIR),
     )
 

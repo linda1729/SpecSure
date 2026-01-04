@@ -73,9 +73,12 @@ def resolve_data_path(args):
 def verify_dataset_files(dataset, data_path, data_file=None, gt_file=None):
     if dataset not in REQUIRED_FILES:
         raise FileNotFoundError('当前仅支持预置数据集 IP/SA/PU，已关闭自定义数据集上传')
-    missing = [f for f in REQUIRED_FILES[dataset] if not os.path.isfile(os.path.join(data_path, f))]
+    # 自动在子目录中查找数据文件
+    dataset_folder = DATASET_FOLDERS.get(dataset, dataset)
+    dataset_path = os.path.join(data_path, dataset_folder)
+    missing = [f for f in REQUIRED_FILES[dataset] if not os.path.isfile(os.path.join(dataset_path, f))]
     if missing:
-        raise FileNotFoundError(f'下列数据文件未找到于 {data_path}: {missing}')
+        raise FileNotFoundError(f'下列数据文件未找到于 {dataset_path}: {missing}')
 
 
 def load_dataset(dataset, data_path, pca_components_ip, pca_components_other, data_file=None, gt_file=None, data_key=None, gt_key=None):
@@ -140,8 +143,11 @@ def load_data(name, data_path, data_file=None, gt_file=None, data_key=None, gt_k
     data_file = REQUIRED_FILES[name][0]
     gt_file = REQUIRED_FILES[name][1]
     default_data_key, default_gt_key = DATA_KEYS[name]
-    data_mat = sio.loadmat(os.path.join(data_path, data_file))
-    gt_mat = sio.loadmat(os.path.join(data_path, gt_file))
+    # 自动在子目录中查找数据文件
+    dataset_folder = DATASET_FOLDERS.get(name, name)
+    dataset_path = os.path.join(data_path, dataset_folder)
+    data_mat = sio.loadmat(os.path.join(dataset_path, data_file))
+    gt_mat = sio.loadmat(os.path.join(dataset_path, gt_file))
     data_key = _auto_mat_key(data_mat, data_key or default_data_key)
     gt_key = _auto_mat_key(gt_mat, gt_key or default_gt_key)
     data = data_mat[data_key]
@@ -155,7 +161,8 @@ def load_class_names(dataset, data_path):
     """
     dataset_name = DATASET_FOLDERS.get(dataset, dataset)
     csv_name = f"{dataset_name}.CSV"
-    csv_path = os.path.join(data_path, csv_name)
+    # 从子目录中查找 CSV 文件
+    csv_path = os.path.join(data_path, dataset_name, csv_name)
     if not os.path.isfile(csv_path):
         return None
     names = {}

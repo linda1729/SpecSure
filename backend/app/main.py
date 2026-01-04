@@ -26,6 +26,9 @@ app.mount("/data-static", StaticFiles(directory=DATA_ROOT), name="data-static")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+@app.get("/")
+async def root():
+    return {"message": "Backend is working"}
 
 
 # 双重挂载，确保 /api/cnn/* 与无前缀路径均可访问，避免部署前缀不一致

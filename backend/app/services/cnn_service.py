@@ -82,15 +82,56 @@ def _append_log(job: CnnJob, line: str) -> None:
 def _update_progress(job: CnnJob, line: str) -> None:
     if not line:
         return
+    lower = line.lower()
+    
+    # 匹配 epoch 进度 (如 "Epoch 001:", "Epoch 5/10", "epoch 3")
     match = EPOCH_PATTERN.search(line)
     if match and job.req.epochs:
         epoch = int(match.group(1))
-        pct = (epoch / job.req.epochs) * 100
-        job.progress = max(job.progress, min(99.0, pct))
+        # 将 epoch 映射到 5%-90% 的进度范围
+        pct = 5.0 + (epoch / job.req.epochs) * 85.0
+        job.progress = max(job.progress, min(95.0, pct))
+    
+    # 数据加载阶段 (5-10%)
+    if "loading" in lower or "加载" in line:
+        job.progress = max(job.progress, 5.0)
+    if "pca" in lower or "降维" in line:
+        job.progress = max(job.progress, 8.0)
+    if "creating patches" in lower or "创建" in line:
+        job.progress = max(job.progress, 10.0)
+    
+    # 训练阶段标志
+    if "train loss" in lower or "train acc" in lower:
+        # 从日志中提取 epoch 进度
+        pass  # 已由上面的 EPOCH_PATTERN 处理
+    
+    # 训练完成阶段 (90-95%)
+    if "valid loss" in lower and job.progress < 90.0:
+        job.progress = max(job.progress, 15.0)
+    
+    # 评估/测试阶段 (92-95%)
+    if "test loss" in lower or "test accuracy" in lower:
+        job.progress = max(job.progress, 92.0)
+    if "kappa" in lower or "overall accuracy" in lower:
+        job.progress = max(job.progress, 93.0)
+    
+    # 保存阶段 (95-99%)
+    if "saving model" in lower or "model saved" in lower or "saved to" in lower:
+        job.progress = max(job.progress, 95.0)
     if any(key in line for key in ["Report saved", "Confusion matrix saved", "Visualizations saved"]):
         job.progress = max(job.progress, 98.0)
-    if "Inference finished" in line:
-        job.progress = max(job.progress, 95.0)
+    if "loss history saved" in lower:
+        job.progress = max(job.progress, 96.0)
+    
+    # 推理阶段
+    if "inference finished" in lower or "predicting" in lower:
+        job.progress = max(job.progress, 90.0)
+    if "generate_all_visualizations" in lower:
+        job.progress = max(job.progress, 97.0)
+    
+    # 避免长时间停留在低进度
+    if job.status == "running" and job.progress < 5.0:
+        job.progress = 5.0
 
 
 def _get_job(job_id: str) -> Optional[CnnJob]:
@@ -306,24 +347,49 @@ def _artifact_paths_for_params(
     model_path = Path(model_path) if model_path else TRAINED_DIR / model_name
     pca_path = Path(str(model_path) + ".pca.pkl")
 
-    def pick_path(base_dir: Path, candidates: list[str], fallback: Optional[str] = None) -> Path:
+    def _find_latest_with_keyword(base_dir: Path, keyword: str, tags: list[str]) -> Optional[Path]:
+        """尝试找到包含关键字和数据集标识的最新文件，用于兜底匹配。"""
+        keyword_lower = keyword.lower()
+        candidates = [
+            p
+            for p in base_dir.glob(f"*{keyword}*.png")
+            if keyword_lower in p.name.lower()
+            and any(tag.lower() in p.name.lower() for tag in tags)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+
+    def pick_path(
+        base_dir: Path,
+        candidates: list[str],
+        fallback: Optional[str] = None,
+        keyword: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+    ) -> Path:
         for name in candidates:
             path = base_dir / name
             if path.exists():
                 return path
+        # 尝试基于关键字与数据集标识兜底匹配已存在的文件（解决 epochs 配置不一致导致的 404）
+        if keyword and tags:
+            found = _find_latest_with_keyword(base_dir, keyword, tags)
+            if found:
+                return found
         if fallback:
             return base_dir / fallback
         return base_dir / candidates[0]
 
-    report_path = pick_path(REPORT_DIR, report_candidates)
-    confusion_path = pick_path(VIS_DIR, confusion_candidates)
-    prediction_path_obj = Path(prediction_path) if prediction_path else pick_path(VIS_DIR, prediction_candidates)
-    gt_path = pick_path(VIS_DIR, gt_candidates)
-    infer_cm_path = pick_path(VIS_DIR, infer_cm_candidates, infer_cm_candidates[-1] if infer_cm_candidates else None)
-    pseudocolor_path = pick_path(VIS_DIR, pseudocolor_candidates)
-    classification_path = pick_path(VIS_DIR, classification_candidates)
-    comparison_path = pick_path(VIS_DIR, comparison_candidates)
-    error_map_path = pick_path(VIS_DIR, error_map_candidates)
+    tags = [dataset_code, folder_name]
+    report_path = pick_path(REPORT_DIR, report_candidates, keyword="report", tags=tags)
+    confusion_path = pick_path(VIS_DIR, confusion_candidates, keyword="confusion", tags=tags)
+    prediction_path_obj = Path(prediction_path) if prediction_path else pick_path(VIS_DIR, prediction_candidates, keyword="prediction", tags=tags)
+    gt_path = pick_path(VIS_DIR, gt_candidates, keyword="groundtruth", tags=tags)
+    infer_cm_path = pick_path(VIS_DIR, infer_cm_candidates, infer_cm_candidates[-1] if infer_cm_candidates else None, keyword="confusion", tags=tags)
+    pseudocolor_path = pick_path(VIS_DIR, pseudocolor_candidates, keyword="pseudocolor", tags=tags)
+    classification_path = pick_path(VIS_DIR, classification_candidates, keyword="classification", tags=tags)
+    comparison_path = pick_path(VIS_DIR, comparison_candidates, keyword="comparison", tags=tags)
+    error_map_path = pick_path(VIS_DIR, error_map_candidates, keyword="error", tags=tags)
 
     for p in [model_path, pca_path, report_path, confusion_path, prediction_path_obj, gt_path, infer_cm_path, pseudocolor_path, classification_path, comparison_path, error_map_path]:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -375,7 +441,8 @@ def _parse_report(path: Path):
     metrics = {}
     for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
         lower = line.lower()
-        m = re.search(r"([-+]?[0-9]*\\.?[0-9]+)", line)
+        # 修复正则: \. 在 raw string 中匹配点号
+        m = re.search(r"([-+]?[0-9]*\.?[0-9]+)", line)
         if not m:
             continue
         value = float(m.group(1))
@@ -421,6 +488,8 @@ def _build_command(req: CnnTrainRequest, artifacts: ArtifactPaths) -> List[str]:
         str(HYBRID_CODE_DIR / "train.py"),
         "--dataset",
         req.dataset,
+        "--data_path",
+        str(CNN_DATA_DIR),
         "--test_ratio",
         str(req.test_ratio),
         "--window_size",
@@ -480,7 +549,7 @@ def _list_artifacts() -> ArtifactListing:
 
     return ArtifactListing(
         models=collect(TRAINED_DIR, (".pth", ".pkl")),
-        reports=collect(REPORT_DIR, (".txt",)),
+        reports=collect(REPORT_DIR, (".txt", ".json")),  # 添加 .json 支持 loss_history 文件
         visualizations=collect_visualizations(VIS_DIR),
     )
 

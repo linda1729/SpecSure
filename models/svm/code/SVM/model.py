@@ -57,7 +57,10 @@ class SVMClassifier:
     # 训练 & 推理
     # -------------------
     def fit(self, X: np.ndarray, y: np.ndarray) -> "SVMClassifier":
+        print(f"[INFO] 开始 SVM 训练，样本数: {X.shape[0]}, 特征数: {X.shape[1]}")
+        print(f"[INFO] 这可能需要几分钟时间，请耐心等待...")
         self.model.fit(X, y)
+        print(f"[INFO] SVM 训练完成！")
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:

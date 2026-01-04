@@ -3,359 +3,783 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SpecSure · CNN + SVM</title>
+  <title>SpecSure · 澜瞳 - CNN + SVM 高光谱分类</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+  
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['var(--font-sans)', 'Inter', 'sans-serif'],
+            code: ['"Space Grotesk"', 'monospace'],
+            display: ['var(--font-display)', '"Google Sans"', 'sans-serif'],
+            cn: ['var(--font-cn)', '"Noto Sans SC"', 'sans-serif'],
+          },
+          colors: {
+            'surface': 'rgb(var(--surface) / <alpha-value>)',
+            'on-surface': 'rgb(var(--on-surface) / <alpha-value>)',
+            'on-surface-variant': 'rgb(var(--on-surface-variant) / <alpha-value>)',
+            'surface-container': 'rgb(var(--surface-container) / <alpha-value>)',
+            'surface-container-high': 'rgb(var(--surface-container-high) / <alpha-value>)',
+            'primary': 'rgb(var(--primary) / <alpha-value>)',
+            'secondary': 'rgb(var(--secondary) / <alpha-value>)',
+          },
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    :root {
+      --surface: 255 255 255;
+      --on-surface: 18 19 23;
+      --on-surface-variant: 69 71 77;
+      --surface-container: 248 249 252;
+      --surface-container-high: 239 242 247;
+      --primary: 26 115 232;
+      --secondary: 234 67 53;
+      --font-sans: 'Google Sans', 'Inter', sans-serif;
+      --font-display: 'Google Sans', 'Inter', sans-serif;
+      --font-cn: 'Noto Sans SC', sans-serif;
+    }
+    [data-theme='academic'] {
+      --surface: 249 248 244;
+      --on-surface: 28 25 23;
+      --on-surface-variant: 87 83 78;
+      --surface-container: 240 238 233;
+      --surface-container-high: 231 229 224;
+      --primary: 197 160 89;
+      --secondary: 28 25 23;
+      --font-display: 'Playfair Display', serif;
+      --font-cn: 'Noto Serif SC', serif;
+    }
+    [data-theme='word'] {
+      --surface: 255 255 255;
+      --on-surface: 0 0 0;
+      --on-surface-variant: 100 100 100;
+      --surface-container: 245 245 245;
+      --surface-container-high: 230 230 230;
+      --primary: 0 0 0;
+      --secondary: 80 80 80;
+      --font-display: 'Playfair Display', serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: rgb(var(--surface));
+      color: rgb(var(--on-surface));
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.5s, color 0.5s;
+    }
+    h1, h2, h3, h4 { font-family: var(--font-display); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgb(var(--surface-container)); }
+    ::-webkit-scrollbar-thumb { background: rgb(var(--on-surface-variant) / 0.3); border-radius: 3px; }
+  </style>
   <link rel="stylesheet" href="./styles.css" />
 </head>
-<body>
-  <div class="window">
-    <div class="titlebar">
-      <div class="title">Coastline Hyperspectral Classification – CNN + SVM</div>
-      <div class="window-btns">
-        <span class="dot yellow"></span>
-        <span class="dot green"></span>
-        <span class="dot red"></span>
+<body data-theme="modern" class="min-h-screen">
+  <!-- Particle Background -->
+  <div id="particleContainer" class="fixed inset-0 pointer-events-none -z-10"></div>
+  
+  <!-- Navigation -->
+  <nav class="fixed top-0 left-0 right-0 z-40 py-4 bg-surface/80 backdrop-blur-xl border-b border-on-surface/5">
+    <div class="mx-auto px-6 md:px-10 lg:px-16 max-w-[1600px] flex justify-between items-center">
+      <a id="logoLink" href="javascript:void(0)" class="flex items-center gap-3 group cursor-pointer" title="点击切换首页/功能页">
+        <div class="w-11 h-11 rounded-full bg-on-surface text-surface flex items-center justify-center font-bold text-base transition-transform hover:scale-110">S</div>
+        <span class="font-bold text-2xl tracking-tight group-hover:text-primary transition-colors">SpecSure | <span class="text-primary">澜瞳</span></span>
+      </a>
+
+      <!-- Main Navigation Tabs -->
+      <div class="hidden md:flex items-center gap-1 bg-surface-container rounded-full p-1">
+        <button class="nav-item active" data-view="data">数据集</button>
+        <button class="nav-item" data-view="train">训练/推理</button>
+        <button class="nav-item" data-view="eval">评估对比</button>
+        <button class="nav-item" data-view="analysis">智能分析</button>
+        <button class="nav-item" data-view="artifacts">产物</button>
+      </div>
+
+      <!-- Theme & Actions -->
+      <div class="flex items-center gap-3">
+        <div class="flex items-center bg-surface-container rounded-full p-1">
+          <button class="theme-btn active" data-theme="modern">Modern</button>
+          <button class="theme-btn" data-theme="academic">Academic</button>
+          <button class="theme-btn" data-theme="word">Word</button>
+        </div>
+        <button id="btnDocs" class="hidden sm:flex items-center gap-1 bg-on-surface text-surface px-4 py-2 rounded-full text-sm font-medium hover:opacity-80">
+          <span class="material-symbols-outlined text-base">description</span>
+          API
+        </button>
       </div>
     </div>
+  </nav>
 
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="logo">SpecSure</div>
-        <button class="nav-item active" data-view="data">数据集</button>
-        <button class="nav-item" data-view="train">训练 / 推理</button>
-        <button class="nav-item" data-view="eval">评估</button>
-        <button class="nav-item" data-view="artifacts">产物</button>
-        <button id="btnDocs" class="nav-item ghost">API Docs</button>
-      </aside>
+  <!-- Main Content -->
+  <main class="pt-24 pb-20 px-6 md:px-10 lg:px-16 max-w-[1600px] mx-auto">
+    
+    <!-- ==================== DATA VIEW ==================== -->
+    <section class="view active" id="view-data">
+      <div class="mb-10">
+        <span class="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full mb-4">STEP 1</span>
+        <h1 class="text-4xl md:text-5xl font-medium tracking-tight mb-3">数据集管理</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl">选择高光谱数据集进行分类研究</p>
+      </div>
 
-      <main class="workspace">
-        <!-- 数据集 -->
-        <section class="view active" id="view-data">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">STEP 1</p>
-              <h1>数据检查</h1>
+      <div class="bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h3 class="text-xl font-medium mb-1">可用数据集</h3>
+            <p class="text-on-surface-variant text-sm">将 HSI 与 GT .mat 文件放到 data/[Dataset]/ 目录</p>
+          </div>
+          <button id="btnRefreshDatasets" class="btn-ghost">
+            <span class="material-symbols-outlined">refresh</span>
+            重新检测
+          </button>
+        </div>
+        
+        <!-- Dataset Cards Container -->
+        <div id="datasetCards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        
+        <!-- Dataset Path Selection -->
+        <div class="mt-6 pt-6 border-t border-on-surface/5">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="material-symbols-outlined text-primary">folder_open</span>
+            <span class="text-sm font-medium">数据集路径配置</span>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="param-group">
+              <label>已检测数据集</label>
+              <select id="datasetPathSelect" class="input-field">
+                <option value="">自动匹配</option>
+              </select>
             </div>
-            <div class="status" id="statusText">等待操作</div>
+            <div class="param-group">
+              <label>或手动输入路径</label>
+              <input type="text" id="datasetPathManual" class="input-field" placeholder="E:\path\to\dataset\folder" />
+            </div>
+          </div>
+          <button id="btnFillDatasetPath" class="btn-ghost text-xs mt-2">
+            <span class="material-symbols-outlined text-sm">auto_fix_high</span>
+            填入默认数据集路径
+          </button>
+          <p class="text-xs text-on-surface-variant mt-2">可手动指定数据集目录，系统将自动检测其中的 HSI 与 GT 文件。</p>
+        </div>
+        
+        <!-- Current Selection -->
+        <div class="mt-6 pt-6 border-t border-on-surface/5">
+          <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+            <span id="statusText" class="text-sm text-on-surface-variant">等待操作</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TRAIN VIEW ==================== -->
+    <section class="view" id="view-train">
+      <div class="mb-10">
+        <span class="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full mb-4">STEP 2</span>
+        <h1 class="text-4xl md:text-5xl font-medium tracking-tight mb-3">模型训练与推理</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl">配置超参数，运行 CNN 或 SVM 分类模型</p>
+      </div>
+
+      <!-- Model Cards Grid -->
+      <div class="grid lg:grid-cols-2 gap-6 mb-8">
+        
+        <!-- CNN Card -->
+        <div class="model-card bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+              <span class="material-symbols-outlined text-primary text-3xl">psychology</span>
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold">CNN · HybridSN</h2>
+              <p class="text-on-surface-variant text-sm">3D-2D 混合卷积网络</p>
+            </div>
           </div>
 
-          <div class="card">
-            <div class="card-header">
+          <!-- CNN Parameters -->
+          <div class="grid grid-cols-2 gap-3 mb-6">
+            <div class="param-group col-span-2">
+              <label>数据集</label>
+              <select id="trainDataset" class="input-field"></select>
+            </div>
+            <div class="param-group"><label>Test Ratio</label><input type="number" id="testRatio" step="0.05" value="0.3" class="input-field" /></div>
+            <div class="param-group"><label>Window Size</label><input type="number" id="windowSize" value="25" class="input-field" /></div>
+            <div class="param-group"><label>PCA (IP)</label><input type="number" id="pcaIP" value="30" class="input-field" /></div>
+            <div class="param-group"><label>PCA (其他)</label><input type="number" id="pcaOther" value="15" class="input-field" /></div>
+            <div class="param-group"><label>Batch Size</label><input type="number" id="batchSize" value="32" class="input-field" /></div>
+            <div class="param-group"><label>Epochs</label><input type="number" id="epochs" value="10" class="input-field" /></div>
+            <div class="param-group col-span-2"><label>学习率</label><input type="number" id="learningRate" step="0.0001" value="0.001" class="input-field" /></div>
+          </div>
+
+          <div class="flex gap-3 mb-4">
+            <button id="btnTrain" class="btn-primary flex-1"><span class="material-symbols-outlined">play_arrow</span>训练</button>
+            <button id="btnInfer" class="btn-secondary"><span class="material-symbols-outlined">bolt</span>推理</button>
+          </div>
+
+          <!-- CNN 推理模型选择 -->
+          <div id="cnnInferSection" class="mb-6 p-4 bg-surface rounded-xl border border-on-surface/5">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="material-symbols-outlined text-primary">model_training</span>
+              <span class="text-sm font-medium">CNN 推理模型</span>
+            </div>
+            <div class="param-group mb-3">
+              <label>已产出模型</label>
+              <select id="modelPathSelect" class="input-field">
+                <option value="">自动匹配</option>
+              </select>
+            </div>
+            <div class="param-group">
+              <label>或手动输入</label>
+              <input type="text" id="modelPathManual" class="input-field" placeholder="可留空自动匹配最新模型" />
+            </div>
+            <button id="btnFillCnnModel" class="btn-ghost text-xs mt-2">
+              <span class="material-symbols-outlined text-sm">auto_fix_high</span>
+              填入默认 CNN 模型路径
+            </button>
+            <p class="text-xs text-on-surface-variant mt-2">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
+          </div>
+
+          <!-- CNN Progress -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-sm">
+              <span>训练进度</span>
+              <span id="progressNumberCnn" class="font-mono text-primary">0%</span>
+            </div>
+            <div class="progress-bar"><div id="progressFillCnn" class="progress-fill"></div></div>
+            <p id="progressLabelCnn" class="text-xs text-on-surface-variant">等待执行</p>
+          </div>
+
+          <!-- CNN Results with Image Gallery -->
+          <div id="cnnResultsPanel" class="mt-6 pt-6 border-t border-on-surface/5 hidden">
+            <h4 class="font-medium mb-3 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary">analytics</span>
+              运行结果
+            </h4>
+            <div id="metricsBoxCnn" class="metrics-display"></div>
+            <div id="runMessageCnn" class="mt-2 text-sm"></div>
+            
+            <!-- CNN Visualization Gallery -->
+            <div id="cnnImageGallery" class="mt-4 grid grid-cols-2 gap-3"></div>
+            <div id="artifactLinksCnn" class="mt-3 flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+
+        <!-- SVM Card -->
+        <div class="model-card bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-secondary/20 to-secondary/5 flex items-center justify-center">
+              <span class="material-symbols-outlined text-secondary text-3xl">target</span>
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold">SVM 支持向量机</h2>
+              <p class="text-on-surface-variant text-sm">经典机器学习分类器</p>
+            </div>
+          </div>
+
+          <!-- SVM Parameters -->
+          <div class="grid grid-cols-2 gap-3 mb-6">
+            <div class="param-group"><label>核函数</label>
+              <select id="svmKernel" class="input-field">
+                <option value="linear">Linear</option>
+                <option value="rbf" selected>RBF</option>
+                <option value="poly">Poly</option>
+              </select>
+            </div>
+            <div class="param-group"><label>C 参数</label><input type="number" id="svmC" step="0.1" value="1.0" class="input-field" /></div>
+            <div class="param-group"><label>Gamma</label><input type="text" id="svmGamma" value="scale" class="input-field" /></div>
+            <div class="param-group"><label>Degree</label><input type="number" id="svmDegree" value="3" class="input-field" /></div>
+          </div>
+
+          <div class="flex gap-3 mb-4">
+            <button id="btnSvmTrain" class="btn-primary flex-1"><span class="material-symbols-outlined">play_arrow</span>训练</button>
+            <button id="btnSvmInfer" class="btn-secondary"><span class="material-symbols-outlined">bolt</span>推理</button>
+          </div>
+
+          <!-- SVM 推理模型选择 -->
+          <div id="svmInferSection" class="mb-6 p-4 bg-surface rounded-xl border border-on-surface/5">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="material-symbols-outlined text-secondary">model_training</span>
+              <span class="text-sm font-medium">SVM 推理模型</span>
+            </div>
+            <div class="param-group mb-3">
+              <label>已产出模型</label>
+              <select id="svmModelPathSelect" class="input-field">
+                <option value="">自动匹配</option>
+              </select>
+            </div>
+            <div class="param-group">
+              <label>或手动输入</label>
+              <input type="text" id="svmModelPathManual" class="input-field" placeholder="可留空自动匹配最新模型" />
+            </div>
+            <button id="btnFillSvmModel" class="btn-ghost text-xs mt-2">
+              <span class="material-symbols-outlined text-sm">auto_fix_high</span>
+              填入默认 SVM 模型路径
+            </button>
+            <p class="text-xs text-on-surface-variant mt-2">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
+          </div>
+
+          <!-- SVM Progress -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-sm">
+              <span>训练进度</span>
+              <span id="progressNumberSvm" class="font-mono text-primary">0%</span>
+            </div>
+            <div class="progress-bar"><div id="progressFillSvm" class="progress-fill"></div></div>
+            <p id="progressLabelSvm" class="text-xs text-on-surface-variant">等待执行</p>
+          </div>
+
+          <!-- SVM Results -->
+          <div id="svmResultsPanel" class="mt-6 pt-6 border-t border-on-surface/5 hidden">
+            <h4 class="font-medium mb-3 flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary">analytics</span>
+              运行结果
+            </h4>
+            <div id="metricsBoxSvm" class="metrics-display"></div>
+            <div id="runMessageSvm" class="mt-2 text-sm"></div>
+            
+            <!-- SVM Visualization Gallery -->
+            <div id="svmImageGallery" class="mt-4 grid grid-cols-2 gap-3"></div>
+            <div id="artifactLinksSvm" class="mt-3 flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reset Button -->
+      <div class="flex justify-center">
+        <button id="btnResetParams" class="btn-ghost">
+          <span class="material-symbols-outlined">restart_alt</span>
+          恢复默认参数
+        </button>
+      </div>
+    </section>
+
+    <!-- ==================== EVALUATION VIEW ==================== -->
+    <section class="view" id="view-eval">
+      <div class="mb-10">
+        <span class="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full mb-4">STEP 3</span>
+        <h1 class="text-4xl md:text-5xl font-medium tracking-tight mb-3">评估与可视化</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl">对比 CNN 与 SVM 的分类性能，可视化预测结果</p>
+      </div>
+
+      <!-- Image Comparison Slider -->
+      <div class="bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5 mb-8">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-xl font-medium mb-1">分类结果对比</h3>
+            <p class="text-on-surface-variant text-sm">拖动滑块对比 CNN 与 SVM 分类结果</p>
+          </div>
+          <div class="flex gap-2">
+            <select id="compareLeftSelect" class="input-field text-sm w-auto">
+              <option value="">选择左图...</option>
+            </select>
+            <select id="compareRightSelect" class="input-field text-sm w-auto">
+              <option value="">选择右图...</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Draggable Image Comparison Container -->
+        <div id="imageCompareContainer" class="image-compare-wrapper">
+          <div class="image-compare-placeholder">
+            <span class="material-symbols-outlined text-5xl text-on-surface-variant/30">compare</span>
+            <p class="text-on-surface-variant mt-2">选择图片开始对比</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Map Comparison -->
+      <div class="bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5 mb-8">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-xl font-medium mb-1">误差图对比</h3>
+            <p class="text-on-surface-variant text-sm">拖动滑块对比 CNN 与 SVM 的分类误差分布</p>
+          </div>
+          <div class="flex gap-2">
+            <select id="errorLeftSelect" class="input-field text-sm w-auto">
+              <option value="">选择CNN误差图...</option>
+            </select>
+            <select id="errorRightSelect" class="input-field text-sm w-auto">
+              <option value="">选择SVM误差图...</option>
+            </select>
+          </div>
+        </div>
+        <div id="errorCompareContainer" class="image-compare-wrapper">
+          <div class="image-compare-placeholder">
+            <span class="material-symbols-outlined text-5xl text-on-surface-variant/30">error</span>
+            <p class="text-on-surface-variant mt-2">选择误差图开始对比</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ground Truth vs Prediction Comparison -->
+      <div class="bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5 mb-8">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-xl font-medium mb-1">真值 vs 预测对比</h3>
+            <p class="text-on-surface-variant text-sm">拖动滑块对比 Ground Truth 与模型预测结果</p>
+          </div>
+          <div class="flex gap-2">
+            <select id="gtSelect" class="input-field text-sm w-auto">
+              <option value="">选择Ground Truth...</option>
+            </select>
+            <select id="predSelect" class="input-field text-sm w-auto">
+              <option value="">选择预测图...</option>
+            </select>
+          </div>
+        </div>
+        <div id="gtPredCompareContainer" class="image-compare-wrapper">
+          <div class="image-compare-placeholder">
+            <span class="material-symbols-outlined text-5xl text-on-surface-variant/30">difference</span>
+            <p class="text-on-surface-variant mt-2">选择图片开始对比</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Evaluation Results with Metrics -->
+      <div class="bg-surface-container rounded-3xl p-6 md:p-8 border border-on-surface/5">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-medium">评估报告</h3>
+          <button id="btnRefreshEval" class="btn-ghost">
+            <span class="material-symbols-outlined">refresh</span>
+            刷新
+          </button>
+        </div>
+        
+        <!-- Dataset Selection Tabs -->
+        <div id="evalButtons" class="flex flex-wrap gap-2 mb-6"></div>
+        
+        <!-- Metrics Display Panel -->
+        <div id="metricsPanel" class="grid md:grid-cols-2 gap-6 mb-6">
+          <!-- CNN Metrics -->
+          <div class="bg-surface rounded-2xl p-5 border border-primary/20">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="material-symbols-outlined text-primary text-2xl">psychology</span>
+              <h4 class="font-semibold text-primary">CNN · HybridSN 指标</h4>
+            </div>
+            <div id="cnnMetricsGrid" class="grid grid-cols-2 gap-3">
+              <div class="metric-card">
+                <div class="metric-value" id="cnnTestLoss">--</div>
+                <div class="metric-label">Test Loss (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="cnnTestAcc">--</div>
+                <div class="metric-label">Test Accuracy (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="cnnKappa">--</div>
+                <div class="metric-label">Kappa (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="cnnOA">--</div>
+                <div class="metric-label">Overall Acc (%)</div>
+              </div>
+              <div class="metric-card col-span-2">
+                <div class="metric-value" id="cnnAA">--</div>
+                <div class="metric-label">Average Acc (%)</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- SVM Metrics -->
+          <div class="bg-surface rounded-2xl p-5 border border-secondary/20">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="material-symbols-outlined text-secondary text-2xl">target</span>
+              <h4 class="font-semibold text-secondary">SVM 指标</h4>
+            </div>
+            <div id="svmMetricsGrid" class="grid grid-cols-2 gap-3">
+              <div class="metric-card">
+                <div class="metric-value" id="svmTestLoss">--</div>
+                <div class="metric-label">Test Loss (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="svmTestAcc">--</div>
+                <div class="metric-label">Test Accuracy (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="svmKappa">--</div>
+                <div class="metric-label">Kappa (%)</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="svmOA">--</div>
+                <div class="metric-label">Overall Acc (%)</div>
+              </div>
+              <div class="metric-card col-span-2">
+                <div class="metric-value" id="svmAA">--</div>
+                <div class="metric-label">Average Acc (%)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Loss Curve Chart -->
+        <div class="bg-surface rounded-2xl p-5 border border-on-surface/10 mb-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary">show_chart</span>
+              <h4 class="font-semibold">Loss 曲线对比</h4>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnToggleCnnLoss" data-loss-model="CNN" class="btn-ghost text-xs active">CNN</button>
+              <button id="btnToggleSvmLoss" data-loss-model="SVM" class="btn-ghost text-xs">SVM</button>
+            </div>
+          </div>
+          <div id="lossChartContainer" class="relative h-64 bg-surface-container rounded-xl overflow-hidden">
+            <canvas id="lossChart"></canvas>
+            <div id="chartTooltip" class="chart-tooltip hidden"></div>
+          </div>
+          <p class="text-xs text-on-surface-variant mt-2 text-center">悬停查看详细数值 · 支持 CNN/SVM 切换</p>
+        </div>
+
+        <!-- Interactive Accuracy Curve Chart -->
+        <div class="bg-surface rounded-2xl p-5 border border-on-surface/10 mb-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary">trending_up</span>
+              <h4 class="font-semibold">Accuracy 曲线对比</h4>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnToggleCnnAcc" data-acc-model="CNN" class="btn-ghost text-xs active">CNN</button>
+              <button id="btnToggleSvmAcc" data-acc-model="SVM" class="btn-ghost text-xs">SVM</button>
+            </div>
+          </div>
+          <div id="accuracyChartContainer" class="relative h-64 bg-surface-container rounded-xl">
+            <canvas id="accuracyChart"></canvas>
+            <div id="accChartTooltip" class="chart-tooltip hidden"></div>
+          </div>
+          <p class="text-xs text-on-surface-variant mt-2 text-center">悬停查看详细数值 · 支持 CNN/SVM 切换</p>
+        </div>
+        
+        <!-- Evaluation Detail Panel -->
+        <div id="evalDetail" class="eval-detail-panel"></div>
+      </div>
+    </section>
+
+    <!-- ==================== ANALYSIS VIEW (AI Assistant) ==================== -->
+    <section class="view" id="view-analysis">
+      <div class="mb-10">
+        <span class="inline-block px-3 py-1 bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-600 text-xs font-semibold rounded-full mb-4">🤖 AI POWERED</span>
+        <h1 class="text-4xl md:text-5xl font-medium tracking-tight mb-3">智能分析中心</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl">天才潮霸助手为您生成专业的高光谱分类分析报告</p>
+      </div>
+
+      <!-- AI Assistant Card -->
+      <div class="grid lg:grid-cols-3 gap-6">
+        <!-- AI Chat Interface -->
+        <div class="lg:col-span-2 bg-surface-container rounded-3xl border border-on-surface/5 overflow-hidden">
+          <!-- AI Header -->
+          <div class="ai-header p-6 border-b border-on-surface/5">
+            <div class="flex items-center gap-4">
+              <div class="ai-avatar">
+                <div class="ai-avatar-inner">
+                  <span class="text-2xl">🧠</span>
+                </div>
+                <div class="ai-avatar-pulse"></div>
+              </div>
               <div>
-                <p class="eyebrow">数据准备</p>
-                <h3>仅使用内置 IP / SA / PU</h3>
-                <p class="muted small">将 HSI 与 GT .mat 放到项目 data/[Dataset]/ 目录，命名需与后端定义一致。</p>
-              </div>
-              <button id="btnRefreshDatasets" class="btn ghost">重新检测</button>
-            </div>
-            <ul class="muted small">
-              <li>示例：data/IndianPines/IndianPines_hsi.mat 与 IndianPines_gt.mat</li>
-              <li>不再支持网页上传，如需替换请直接覆盖文件后点击“重新检测”。</li>
-              <li>下方卡片会显示文件就绪状态与类标签 CSV。</li>
-            </ul>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <p class="eyebrow">数据集状态</p>
-                <h3>IP / SA / PU</h3>
-              </div>
-            </div>
-            <div id="datasetCards" class="card-grid"></div>
-          </div>
-        </section>
-
-        <!-- 训练/推理 -->
-        <section class="view" id="view-train">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">STEP 2</p>
-              <h1>模型训练与推理</h1>
-            </div>
-            <div class="status">CNN HybridSN 与 SVM 分别配置、各自运行</div>
-          </div>
-
-          <div class="card grid-2">
-            <div class="module">
-              <p class="eyebrow">CNN · HybridSN 参数</p>
-              <div class="field-row responsive">
-                <label>数据集
-                  <select id="trainDataset"></select>
-                </label>
-                <label>Test Ratio
-                  <input type="number" id="testRatio" step="0.05" min="0.05" max="0.9" />
-                </label>
-                <label>Window Size
-                  <input type="number" id="windowSize" min="5" />
-                </label>
-              </div>
-              <div class="field-row responsive">
-                <label>PCA (IP)
-                  <input type="number" id="pcaIP" min="1" />
-                </label>
-                <label>PCA (其他)
-                  <input type="number" id="pcaOther" min="1" />
-                </label>
-                <label>Batch Size
-                  <input type="number" id="batchSize" min="1" />
-                </label>
-                <label>Epochs
-                  <input type="number" id="epochs" min="1" />
-                </label>
-                <label>LR
-                  <input type="number" id="learningRate" step="0.0001" />
-                </label>
-              </div>
-              <div class="actions">
-                <button id="btnTrain" class="btn primary">训练 + 评估</button>
-                <button id="btnInfer" class="btn ghost">仅推理</button>
-                <button id="btnResetParams" class="btn ghost" type="button">恢复默认超参</button>
-              </div>
-            </div>
-
-            <div class="module">
-              <p class="eyebrow">推理模型</p>
-              <div class="field-row responsive">
-                <label>已产出模型
-                  <select id="modelPathSelect"></select>
-                </label>
-                <label>或手动输入
-                  <input type="text" id="modelPathManual" placeholder="绝对或相对路径" />
-                </label>
-              </div>
-              <div class="actions">
-                <button id="btnFillDefaultModel" class="btn ghost" type="button">填入默认命名路径</button>
-              </div>
-              <p class="muted small">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
-            </div>
-          </div>
-
-          <div class="card grid-2">
-            <div class="module">
-              <p class="eyebrow">SVM 参数</p>
-              <div class="field-row responsive">
-                <label>核函数
-                  <select id="svmKernel">
-                    <option value="linear">linear</option>
-                    <option value="rbf" selected>rbf</option>
-                    <option value="poly">poly</option>
-                    <option value="sigmoid">sigmoid</option>
-                  </select>
-                </label>
-                <label>C
-                  <input type="number" id="svmC" step="0.1" min="0.001" />
-                </label>
-                <label>Gamma
-                  <input type="text" id="svmGamma" placeholder="scale / auto / 数值" />
-                </label>
-              </div>
-              <div class="field-row responsive">
-                <label>Degree
-                  <input type="number" id="svmDegree" min="1" />
-                </label>
-                <label>随机种子
-                  <input type="number" id="svmRandomState" />
-                </label>
-              </div>
-              <div class="actions">
-                <button id="btnSvmTrain" class="btn primary">训练 + 评估</button>
-                <button id="btnSvmInfer" class="btn ghost">仅推理</button>
-              </div>
-            </div>
-
-            <div class="module">
-              <p class="eyebrow">SVM 推理模型</p>
-              <div class="field-row responsive">
-                <label>已产出模型
-                  <select id="svmModelPathSelect"></select>
-                </label>
-                <label>或手动输入
-                  <input type="text" id="svmModelPathManual" placeholder="绝对或相对路径 (.joblib)" />
-                </label>
-              </div>
-              <div class="actions">
-                <button id="btnFillSvmDefaultModel" class="btn ghost" type="button">填入默认 SVM 模型路径</button>
-              </div>
-              <p class="muted small">推理模式可留空，后台将自动匹配该数据集最新模型；如需指定，请先刷新产物列表再填入或选择。</p>
-            </div>
-          </div>
-
-          <div class="card grid-2">
-            <div class="module progress-module">
-              <div class="progress-meta">
-                <div>
-                  <p class="eyebrow">CNN 运行进度</p>
-                  <div id="progressLabelCnn" class="muted small">等待执行</div>
-                </div>
-                <div id="progressNumberCnn" class="progress-number">0%</div>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" id="progressFillCnn"></div>
-              </div>
-            </div>
-            <div class="module progress-module">
-              <div class="progress-meta">
-                <div>
-                  <p class="eyebrow">SVM 运行进度</p>
-                  <div id="progressLabelSvm" class="muted small">等待执行</div>
-                </div>
-                <div id="progressNumberSvm" class="progress-number">0%</div>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" id="progressFillSvm"></div>
+                <h3 class="text-xl font-semibold ai-gradient-text">天才潮霸助手</h3>
+                <p class="text-sm text-on-surface-variant flex items-center gap-1">
+                  <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  在线 · 高光谱分类专家
+                </p>
               </div>
             </div>
           </div>
 
-          <div class="card">
-            <p class="eyebrow">类别标签 (来自 CSV)</p>
-            <div id="classNamesBox" class="class-names muted tiny">等待选择数据集...</div>
-          </div>
-
-          <div class="card">
-            <div class="eval-grid">
-              <div class="panel">
-                <p class="eyebrow">CNN · HybridSN 结果</p>
-                <div class="metric-list muted" id="metricsBoxCnn">等待运行...</div>
-                <div class="artifact-links" id="artifactLinksCnn"></div>
-                <div id="runMessageCnn" class="muted"></div>
-                <div class="preview-grid">
-                  <div>
-                    <p class="muted">预测</p>
-                    <img id="imgPredictionCnn" class="preview-img" alt="prediction" />
-                  </div>
-                  <div>
-                    <p class="muted">Ground Truth</p>
-                    <img id="imgGTCnn" class="preview-img" alt="ground truth" />
-                  </div>
-                  <div>
-                    <p class="muted">混淆矩阵</p>
-                    <img id="imgConfusionCnn" class="preview-img" alt="confusion" />
-                  </div>
-                  <div>
-                    <p class="muted">伪彩色</p>
-                    <img id="imgPseudoCnn" class="preview-img" alt="pseudo color" />
-                  </div>
-                  <div>
-                    <p class="muted">分类图</p>
-                    <img id="imgClassifyCnn" class="preview-img" alt="classification" />
-                  </div>
-                  <div>
-                    <p class="muted">错误图</p>
-                    <img id="imgErrorCnn" class="preview-img" alt="error map" />
-                  </div>
-                  <div class="wide">
-                    <p class="muted">对比图 (预测 vs GT)</p>
-                    <img id="imgCompareCnn" class="preview-img" alt="comparison" />
-                  </div>
-                </div>
-                <pre id="runLogsCnn" class="log-box small">// CNN 日志尾部</pre>
-              </div>
-
-              <div class="panel">
-                <p class="eyebrow">SVM 结果</p>
-                <div class="metric-list muted" id="metricsBoxSvm">等待运行...</div>
-                <div class="artifact-links" id="artifactLinksSvm"></div>
-                <div id="runMessageSvm" class="muted"></div>
-                <div class="preview-grid">
-                  <div>
-                    <p class="muted">预测</p>
-                    <img id="imgPredictionSvm" class="preview-img" alt="prediction" />
-                  </div>
-                  <div>
-                    <p class="muted">Ground Truth</p>
-                    <img id="imgGTSvm" class="preview-img" alt="ground truth" />
-                  </div>
-                  <div>
-                    <p class="muted">混淆矩阵</p>
-                    <img id="imgConfusionSvm" class="preview-img" alt="confusion" />
-                  </div>
-                  <div>
-                    <p class="muted">伪彩色</p>
-                    <img id="imgPseudoSvm" class="preview-img" alt="pseudo color" />
-                  </div>
-                  <div>
-                    <p class="muted">分类图</p>
-                    <img id="imgClassifySvm" class="preview-img" alt="classification" />
-                  </div>
-                  <div>
-                    <p class="muted">错误图</p>
-                    <img id="imgErrorSvm" class="preview-img" alt="error map" />
-                  </div>
-                  <div class="wide">
-                    <p class="muted">对比图 (预测 vs GT)</p>
-                    <img id="imgCompareSvm" class="preview-img" alt="comparison" />
-                  </div>
-                </div>
-                <pre id="runLogsSvm" class="log-box small">// SVM 日志尾部</pre>
+          <!-- Chat Messages -->
+          <div id="aiChatMessages" class="ai-chat-container p-6 overflow-y-auto" style="min-height: 450px; max-height: 60vh;">
+            <div class="ai-message ai-message-bot">
+              <div class="ai-message-avatar">🧠</div>
+              <div class="ai-message-content">
+                <p>您好！我是<strong>天才潮霸助手</strong>，您的高光谱图像分类智能分析专家。</p>
+                <p class="mt-2">我可以帮您：</p>
+                <ul class="mt-1 space-y-1 text-sm">
+                  <li>📊 生成专业的分类性能分析报告</li>
+                  <li>📈 对比 CNN 与 SVM 模型的优劣</li>
+                  <li>💡 提供模型优化建议</li>
+                  <li>🔍 解读各项评估指标含义</li>
+                </ul>
+                <p class="mt-2">请选择下方的快捷操作，或直接输入您的问题！</p>
               </div>
             </div>
           </div>
-        </section>
 
-        <!-- 产物 -->
-        <section class="view" id="view-artifacts">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">STEP 4</p>
-              <h1>产物归档</h1>
+          <!-- Quick Actions -->
+          <div class="p-4 border-t border-on-surface/5 bg-surface/50">
+            <div class="flex flex-wrap gap-2 mb-4">
+              <button class="ai-quick-btn" data-action="report">📋 生成分析报告</button>
+              <button class="ai-quick-btn" data-action="compare">⚖️ CNN vs SVM 对比</button>
+              <button class="ai-quick-btn" data-action="optimize">💡 优化建议</button>
+              <button class="ai-quick-btn" data-action="explain">❓ 指标解读</button>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="flex gap-3">
+              <input type="text" id="aiInput" class="input-field flex-1" placeholder="输入您的问题..." />
+              <button id="btnAiSend" class="btn-primary px-6">
+                <span class="material-symbols-outlined">send</span>
+              </button>
             </div>
           </div>
-          <div class="card">
-            <div class="card-grid">
-              <div class="panel">
-                <p class="eyebrow">模型 / PCA</p>
-                <div id="artifactModels" class="list muted"></div>
-              </div>
-              <div class="panel">
-                <p class="eyebrow">报告</p>
-                <div id="artifactReports" class="list muted"></div>
-              </div>
-              <div class="panel">
-                <p class="eyebrow">可视化</p>
-                <div id="artifactVisuals" class="list muted"></div>
-              </div>
-              <div class="panel">
-                <p class="eyebrow">SVM 模型 / PCA</p>
-                <div id="artifactModelsSvm" class="list muted"></div>
-              </div>
-              <div class="panel">
-                <p class="eyebrow">SVM 报告</p>
-                <div id="artifactReportsSvm" class="list muted"></div>
-              </div>
-              <div class="panel">
-                <p class="eyebrow">SVM 可视化</p>
-                <div id="artifactVisualsSvm" class="list muted"></div>
-              </div>
-            </div>
-          </div>
-        </section>
+        </div>
 
-        <!-- 评估 -->
-        <section class="view" id="view-eval">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">STEP 3</p>
-              <h1>评估指标与可视化</h1>
+        <!-- Analysis Results Panel -->
+        <div class="space-y-6">
+          <!-- Current Analysis Summary -->
+          <div class="bg-surface-container rounded-3xl p-6 border border-on-surface/5">
+            <h4 class="font-semibold mb-4 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary">analytics</span>
+              当前分析摘要
+            </h4>
+            <div id="analysisSummary" class="space-y-3">
+              <div class="analysis-stat">
+                <span class="analysis-stat-label">最佳模型</span>
+                <span class="analysis-stat-value" id="bestModel">待分析</span>
+              </div>
+              <div class="analysis-stat">
+                <span class="analysis-stat-label">最高准确率</span>
+                <span class="analysis-stat-value" id="bestAccuracy">--</span>
+              </div>
+              <div class="analysis-stat">
+                <span class="analysis-stat-label">Kappa 系数</span>
+                <span class="analysis-stat-value" id="bestKappa">--</span>
+              </div>
+              <div class="analysis-stat">
+                <span class="analysis-stat-label">数据集</span>
+                <span class="analysis-stat-value" id="currentDataset">--</span>
+              </div>
             </div>
-            <div class="status muted">选择数据集查看 CNN + SVM 详细对比</div>
-            <button id="btnRefreshEval" class="btn ghost" type="button">刷新评估</button>
           </div>
-          <div class="card">
-            <p class="eyebrow">选择数据集</p>
-            <div id="evalButtons" class="eval-buttons"></div>
+
+          <!-- Interactive Charts -->
+          <div class="bg-surface-container rounded-3xl p-6 border border-on-surface/5">
+            <h4 class="font-semibold mb-4 flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary">pie_chart</span>
+              性能雷达图
+            </h4>
+            <div id="radarChartContainer" class="h-48">
+              <canvas id="radarChart"></canvas>
+            </div>
           </div>
-          <div class="card">
-            <p class="eyebrow">CNN / SVM 对比详情</p>
-            <div id="evalDetail"></div>
+
+          <!-- Comparison Table -->
+          <div class="bg-surface-container rounded-3xl p-6 border border-on-surface/5">
+            <h4 class="font-semibold mb-4 flex items-center gap-2">
+              <span class="material-symbols-outlined text-tertiary">table_chart</span>
+              指标对比表
+            </h4>
+            <div class="overflow-x-auto">
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th>指标</th>
+                    <th>CNN</th>
+                    <th>SVM</th>
+                  </tr>
+                </thead>
+                <tbody id="comparisonTableBody">
+                  <tr><td>Test Loss</td><td id="tblCnnLoss">--</td><td id="tblSvmLoss">--</td></tr>
+                  <tr><td>Test Acc</td><td id="tblCnnAcc">--</td><td id="tblSvmAcc">--</td></tr>
+                  <tr><td>Kappa</td><td id="tblCnnKappa">--</td><td id="tblSvmKappa">--</td></tr>
+                  <tr><td>OA</td><td id="tblCnnOA">--</td><td id="tblSvmOA">--</td></tr>
+                  <tr><td>AA</td><td id="tblCnnAA">--</td><td id="tblSvmAA">--</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== ARTIFACTS VIEW ==================== -->
+    <section class="view" id="view-artifacts">
+      <div class="mb-10">
+        <span class="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full mb-4">STEP 4</span>
+        <h1 class="text-4xl md:text-5xl font-medium tracking-tight mb-3">产物归档</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl">浏览和下载训练生成的模型、报告和可视化</p>
+      </div>
+
+      <!-- Artifacts Grid -->
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <!-- CNN Artifacts -->
+        <div class="artifact-card">
+          <div class="artifact-header bg-primary/10">
+            <span class="material-symbols-outlined text-primary">save</span>
+            <h4>CNN 模型</h4>
+          </div>
+          <div id="artifactModels" class="artifact-list"></div>
+        </div>
+        <div class="artifact-card">
+          <div class="artifact-header bg-primary/10">
+            <span class="material-symbols-outlined text-primary">description</span>
+            <h4>CNN 报告</h4>
+          </div>
+          <div id="artifactReports" class="artifact-list"></div>
+        </div>
+        <div class="artifact-card">
+          <div class="artifact-header bg-primary/10">
+            <span class="material-symbols-outlined text-primary">image</span>
+            <h4>CNN 可视化</h4>
+          </div>
+          <div id="artifactVisuals" class="artifact-list artifact-images"></div>
+        </div>
+        
+        <!-- SVM Artifacts -->
+        <div class="artifact-card">
+          <div class="artifact-header bg-secondary/10">
+            <span class="material-symbols-outlined text-secondary">save</span>
+            <h4>SVM 模型</h4>
+          </div>
+          <div id="artifactModelsSvm" class="artifact-list"></div>
+        </div>
+        <div class="artifact-card">
+          <div class="artifact-header bg-secondary/10">
+            <span class="material-symbols-outlined text-secondary">description</span>
+            <h4>SVM 报告</h4>
+          </div>
+          <div id="artifactReportsSvm" class="artifact-list"></div>
+        </div>
+        <div class="artifact-card">
+          <div class="artifact-header bg-secondary/10">
+            <span class="material-symbols-outlined text-secondary">image</span>
+            <h4>SVM 可视化</h4>
+          </div>
+          <div id="artifactVisualsSvm" class="artifact-list artifact-images"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Floating Log Panel -->
+  <div id="logPanel" class="fixed bottom-4 right-4 z-50">
+    <div class="log-container bg-surface-container/95 backdrop-blur-xl rounded-2xl border border-on-surface/10 shadow-2xl overflow-hidden" style="width: 400px;">
+      <div class="log-header flex items-center justify-between px-4 py-3 border-b border-on-surface/5 cursor-pointer" onclick="toggleLogPanel()">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary">terminal</span>
+          <span class="text-sm font-medium">运行日志</span>
+        </div>
+        <span id="logToggleIcon" class="material-symbols-outlined text-on-surface-variant transition-transform">expand_less</span>
+      </div>
+      <pre id="logBox" class="log-content px-4 py-3 h-48 overflow-y-auto text-xs font-mono text-on-surface-variant"></pre>
     </div>
+  </div>
 
-    <div class="log-panel">
-      <div class="log-title">运行日志</div>
-      <pre id="logBox"></pre>
+  <!-- Image Lightbox Modal -->
+  <div id="lightboxModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/80 backdrop-blur-sm" onclick="closeLightbox(event)">
+    <div class="relative max-w-[90vw] max-h-[90vh]">
+      <img id="lightboxImage" src="" alt="" class="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+      <button onclick="closeLightbox()" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30">
+        <span class="material-symbols-outlined">close</span>
+      </button>
     </div>
   </div>
 

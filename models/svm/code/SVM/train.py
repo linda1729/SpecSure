@@ -286,6 +286,8 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
 
     classifier = SVMClassifier(svm_config)
     print(f"[INFO] 训练 SVM: {svm_config}")
+    print(f"[INFO] 样本数量: 训练集 {X_train_feat.shape[0]}, 测试集 {X_test_feat.shape[0]}")
+    print(f"[INFO] SVM 训练通常需要几分钟，请耐心等待...")
     classifier.fit(X_train_feat, y_train)
 
     metrics = classifier.evaluate(X_test_feat, y_test)
@@ -359,6 +361,89 @@ def train_and_evaluate(args: argparse.Namespace) -> None:
         f.write(np.array2string(cm) + "\n")
 
     print(f"[SAVE] 已保存评估报告到: {report_path}")
+    
+    # -------------------
+    # 计算真实的 Learning Curve 数据（JSON）
+    # SVM 没有 epoch 概念，记录不同训练集大小的性能变化
+    # -------------------
+    import json
+    from sklearn.svm import SVC
+    
+    print("[INFO] 正在计算 Learning Curve（这可能需要一些时间）...")
+    
+    # 使用不同比例的训练数据重新训练 SVM
+    train_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    train_sizes_actual = []
+    train_losses = []  # 1 - train_acc
+    test_losses = []   # 1 - test_acc
+    
+    for ratio in train_ratios:
+        if ratio < 1.0:
+            # 从训练集中采样子集
+            n_samples = int(len(X_train_feat) * ratio)
+            if n_samples < 10:  # 确保至少有一定数量的样本
+                n_samples = min(10, len(X_train_feat))
+            
+            # 使用分层采样保持类别分布
+            try:
+                X_sub, _, y_sub, _ = train_test_split(
+                    X_train_feat, y_train, 
+                    train_size=n_samples, 
+                    random_state=args.random_state,
+                    stratify=y_train
+                )
+            except ValueError:
+                # 如果分层采样失败，使用随机采样
+                indices = np.random.choice(len(X_train_feat), n_samples, replace=False)
+                X_sub = X_train_feat[indices]
+                y_sub = y_train[indices]
+        else:
+            X_sub = X_train_feat
+            y_sub = y_train
+        
+        # 训练一个新的 SVM
+        temp_clf = SVC(
+            kernel=args.kernel,
+            C=args.C,
+            gamma=gamma_param,
+            degree=args.degree,
+            class_weight=args.class_weight if args.class_weight != 'None' else None,
+            random_state=args.random_state
+        )
+        temp_clf.fit(X_sub, y_sub)
+        
+        # 计算训练集和测试集的准确率
+        train_acc = temp_clf.score(X_sub, y_sub)
+        test_acc = temp_clf.score(X_test_feat, y_test)
+        
+        train_sizes_actual.append(len(X_sub))
+        train_losses.append((1 - train_acc) * 100)  # 转换为 loss 百分比
+        test_losses.append((1 - test_acc) * 100)
+        
+        print(f"  训练比例 {ratio:.0%}: 样本数={len(X_sub)}, Train Loss={train_losses[-1]:.2f}%, Test Loss={test_losses[-1]:.2f}%")
+    
+    loss_history = {
+        'train_ratios': train_ratios,
+        'train_sizes': train_sizes_actual,
+        'train_loss': train_losses,
+        'test_loss': test_losses,
+        'final_test_loss': float(test_loss_percent),
+        'final_test_acc': float(test_acc_percent),
+        'kappa': float(kappa_percent),
+        'oa': float(overall_acc_percent),
+        'aa': float(avg_acc_percent),
+        'dataset': dataset_folder,
+        'model': 'SVM',
+        'kernel': args.kernel,
+        'C': args.C,
+        'gamma': str(args.gamma)
+    }
+    
+    loss_json_name = f"{dataset_folder}_loss_history_pca={K}_window={args.window_size}_lr={args.lr}_epochs={args.epochs}.json"
+    loss_json_path = reports_root / loss_json_name
+    with open(loss_json_path, 'w', encoding='utf-8') as f:
+        json.dump(loss_history, f, indent=2, ensure_ascii=False)
+    print(f"[SAVE] 已保存 Loss/Learning 数据到: {loss_json_path}")
 
     # -------------------
     # 类别名称（来自 CSV），用于可视化图例
